@@ -2065,30 +2065,18 @@ function resetHeading() {
 }
 
 function toggleSetLine() {
-  STATE.settingLine = !STATE.settingLine;
-  const btn = document.getElementById('set-line-btn');
-  const lbl = document.getElementById('set-line-label');
-  if (STATE.settingLine) {
-    btn.classList.add('active');
-    lbl.textContent = 'APPUIE SUR LA CARTE';
-    // Délai 300ms pour éviter que le tap du bouton déclenche immédiatement le click carte
-    setTimeout(() => {
-      map.once('click', (e) => {
-        STATE.startLine = { lat: e.latlng.lat, lng: e.latlng.lng };
-        setStartMarker([e.latlng.lat, e.latlng.lng]);
-        STATE.settingLine = false;
-        btn.classList.remove('active');
-        lbl.textContent = 'LIGNE DÉPART ✓';
-        DB.set('lt_startline', STATE.startLine);
-        document.getElementById('reset-heading-btn').style.display = 'flex';
-        showToast('Ligne posée — la direction sera apprise au 1er passage');
-      });
-    }, 300);
-  } else {
-    btn.classList.remove('active');
-    lbl.textContent = STATE.startLine ? 'LIGNE DÉPART ✓' : 'Ligne départ';
-    map.off('click');
+  if (!STATE.currentPos) {
+    showToast('GPS requis — attends le signal');
+    return;
   }
+  // Place la ligne à ta position GPS actuelle
+  const { lat, lng } = STATE.currentPos;
+  STATE.startLine = { lat, lng };
+  setStartMarker([lat, lng]);
+  DB.set('lt_startline', STATE.startLine);
+  document.getElementById('set-line-label').textContent = 'LIGNE DÉPART ✓';
+  document.getElementById('reset-heading-btn').style.display = 'flex';
+  showToast('Ligne posée à ta position actuelle !');
 }
 
 function resetSession() {
