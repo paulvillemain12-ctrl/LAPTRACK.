@@ -1012,8 +1012,8 @@
       <span class="icon">⊕</span> <span id="set-line-label">Ligne départ</span>
     </button>
     <button class="set-line-btn" id="reset-heading-btn" onclick="resetHeading()"
-      style="top:150px;display:none;border-color:rgba(255,77,26,0.5);color:#ff4d1a;">
-      ↺ Direction
+      style="top:158px;display:none;border-color:rgba(255,77,26,0.5);color:#ff4d1a;font-size:11px;padding:5px 10px;">
+      ↺ Reset direction
     </button>
     <div class="kalman-badge" id="kalman-badge">KALMAN OFF</div>
   </div>
@@ -2071,19 +2071,22 @@ function toggleSetLine() {
   if (STATE.settingLine) {
     btn.classList.add('active');
     lbl.textContent = 'APPUIE SUR LA CARTE';
-    map.once('click', (e) => {
-      STATE.startLine = { lat: e.latlng.lat, lng: e.latlng.lng };
-      setStartMarker([e.latlng.lat, e.latlng.lng]);
-      STATE.settingLine = false;
-      btn.classList.remove('active');
-      lbl.textContent = 'LIGNE DÉPART ✓';
-      DB.set('lt_startline', STATE.startLine);
-      document.getElementById('reset-heading-btn').style.display = 'flex';
-      showToast('Ligne posée — la direction sera apprise au 1er passage');
-    });
+    // Délai 300ms pour éviter que le tap du bouton déclenche immédiatement le click carte
+    setTimeout(() => {
+      map.once('click', (e) => {
+        STATE.startLine = { lat: e.latlng.lat, lng: e.latlng.lng };
+        setStartMarker([e.latlng.lat, e.latlng.lng]);
+        STATE.settingLine = false;
+        btn.classList.remove('active');
+        lbl.textContent = 'LIGNE DÉPART ✓';
+        DB.set('lt_startline', STATE.startLine);
+        document.getElementById('reset-heading-btn').style.display = 'flex';
+        showToast('Ligne posée — la direction sera apprise au 1er passage');
+      });
+    }, 300);
   } else {
     btn.classList.remove('active');
-    lbl.textContent = 'LIGNE DÉPART';
+    lbl.textContent = STATE.startLine ? 'LIGNE DÉPART ✓' : 'Ligne départ';
     map.off('click');
   }
 }
