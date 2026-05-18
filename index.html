@@ -141,7 +141,7 @@
   .sensor-overlay {
     position: absolute; inset: 0;
     background: var(--bg);
-    z-index: 2000;
+    z-index: 9999;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     padding: 32px; text-align: center; gap: 18px;
@@ -894,14 +894,7 @@
   <div class="driver-hud" id="driver-hud"></div>
 
   <!-- Sensor permission overlay -->
-  <div class="sensor-overlay" id="sensor-overlay">
-    <div class="sensor-icon-wrap"><div class="sensor-icon">📡</div></div>
-    <div class="sensor-title">Accès aux capteurs</div>
-    <div class="sensor-desc">
-      LapTrack utilise le GPS et l'accéléromètre pour une précision maximale. Sur iPhone, Safari demande ton autorisation pour accéder aux capteurs de mouvement.
-    </div>
-    <button class="sensor-btn" onclick="requestSensors()">Autoriser</button>
-  </div>
+  <div class="sensor-overlay hidden" id="sensor-overlay"></div>
 
   <div id="map"></div>
 
@@ -1859,6 +1852,8 @@ function toggleRecording() {
   if (!STATE.gpsActive) { showToast('GPS non actif — attends le signal'); return; }
 
   if (!STATE.recording) {
+    // Demande accès capteurs au premier tap (requis par iOS)
+    if (!STATE.sensorsAuthorized) requestSensors();
     // Show mode selector — recording starts only after user confirms in startSession()
     STATE.laps = [];
     STATE.currentPoints = [];
@@ -2966,8 +2961,10 @@ async function init() {
   renderLeaderboard();
   updateCircuitSelect();
 
-  // Auto-start GPS + sensors
-  setTimeout(() => requestSensors(), 800);
+  // Auto-start GPS immédiatement, capteurs demandés au premier tap
+  setTimeout(() => {
+    startGPS();
+  }, 500);
 }
 
 init();
