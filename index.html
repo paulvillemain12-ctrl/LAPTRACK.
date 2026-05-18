@@ -1404,7 +1404,6 @@ function carSVG(heading) {
     </svg>
   </div>`;
 }
-}
 
 function createPosMarker(latlng) {
   const icon = L.divIcon({
@@ -1904,6 +1903,8 @@ function resetHeading() {
   if (startLinePolyline) { map.removeLayer(startLinePolyline); startLinePolyline = null; }
   showToast('Direction réinitialisée — repasse sur la ligne');
 }
+
+function toggleSetLine() {
   STATE.settingLine = !STATE.settingLine;
   const btn = document.getElementById('set-line-btn');
   const lbl = document.getElementById('set-line-label');
