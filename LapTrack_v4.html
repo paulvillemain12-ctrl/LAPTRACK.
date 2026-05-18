@@ -1,0 +1,2976 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#07080b">
+<title>LapTrack</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap');
+
+  :root {
+    /* Brutalist Race — bold blocks, hard edges, F1 sector colors */
+    --bg: #f4f1ea;            /* warm cream */
+    --bg2: #ebe6dc;
+    --paper: #faf8f3;
+    --ink: #0a0a0a;           /* near-black */
+    --ink-soft: #1a1a1a;
+    --ink-mute: #6b6660;
+    --border: #0a0a0a;
+    --hairline: rgba(10,10,10,0.12);
+
+    /* Bold accents */
+    --accent: #ff4d1a;        /* hot orange */
+    --magenta: #ff2d92;
+    --electric: #2952ff;
+
+    /* F1 sector colors */
+    --sec-purple: #b32dd1;    /* overall best */
+    --sec-green: #00b96b;     /* personal best */
+    --sec-yellow: #f5c518;    /* slower */
+    --sec-red: #ff2d2d;
+
+    --gold: #f5c518;
+    --text: var(--ink);
+    --muted: var(--ink-mute);
+    --font: 'Archivo', system-ui, -apple-system, sans-serif;
+    --display: 'Archivo', sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bot: env(safe-area-inset-bottom, 0px);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-font-smoothing: antialiased; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background-image:
+      repeating-linear-gradient(0deg, transparent, transparent 23px, rgba(10,10,10,0.04) 23px, rgba(10,10,10,0.04) 24px),
+      repeating-linear-gradient(90deg, transparent, transparent 23px, rgba(10,10,10,0.04) 23px, rgba(10,10,10,0.04) 24px);
+  }
+
+  /* HEADER — chunky, full bleed, no rounding */
+  header {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    padding: 0;
+    border-bottom: 3px solid var(--ink);
+    background: var(--paper);
+    z-index: 100;
+    flex-shrink: 0;
+    padding-top: var(--safe-top);
+  }
+  .logo {
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: 22px;
+    letter-spacing: -1.2px;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 14px 16px;
+    text-transform: uppercase;
+  }
+  .logo::before {
+    content: "";
+    width: 16px; height: 16px;
+    background: var(--accent);
+    border: 2px solid var(--ink);
+    margin-right: 10px;
+    transform: rotate(45deg);
+  }
+  .logo span { display: none; }
+
+  .status-row { display: flex; align-items: stretch; }
+  .badge {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    color: var(--ink); letter-spacing: 0.6px;
+    border-left: 2px solid var(--ink);
+    padding: 0 12px;
+    background: var(--paper);
+    text-transform: uppercase;
+  }
+  .dot { width: 8px; height: 8px; background: var(--ink-mute); transition: background 0.2s; border: 1.5px solid var(--ink); }
+  .dot.active { background: var(--sec-green); animation: blink 1.6s infinite; }
+  .dot.recording { background: var(--sec-red); animation: blink 0.6s infinite; }
+  .dot.warn { background: var(--sec-yellow); }
+  @keyframes blink { 0%,60%{opacity:1} 80%{opacity:0.3} 100%{opacity:1} }
+
+  /* TABS — bold blocks */
+  .tabs {
+    display: flex;
+    background: var(--ink);
+    flex-shrink: 0; z-index: 100;
+    padding: 0;
+  }
+  .tab {
+    flex: 1; padding: 11px 4px; text-align: center;
+    font-family: var(--display); font-weight: 800; font-size: 11px;
+    letter-spacing: 1.2px;
+    color: rgba(255,255,255,0.45); cursor: pointer;
+    position: relative;
+    border-right: 1px solid rgba(255,255,255,0.1);
+    text-transform: uppercase;
+  }
+  .tab:last-child { border-right: none; }
+  .tab.active {
+    color: var(--ink);
+    background: var(--accent);
+  }
+
+  .view { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+  .view.active { display: flex; }
+
+  #map { flex: 1; filter: grayscale(0.5) contrast(1.05); }
+  .leaflet-container { background: #d8d3c8 !important; }
+
+  /* SENSOR OVERLAY */
+  .sensor-overlay {
+    position: absolute; inset: 0;
+    background: var(--bg);
+    z-index: 2000;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 32px; text-align: center; gap: 18px;
+  }
+  .sensor-overlay.hidden { display: none; }
+  .sensor-icon-wrap {
+    width: 80px; height: 80px;
+    border: 3px solid var(--ink);
+    background: var(--accent);
+    display: grid; place-items: center;
+    box-shadow: 6px 6px 0 var(--ink);
+  }
+  .sensor-icon { font-size: 34px; }
+  .sensor-title { font-family: var(--display); font-weight: 900; font-size: 28px; letter-spacing: -1px; text-transform: uppercase; }
+  .sensor-desc { font-family: var(--font); font-size: 14px; color: var(--ink-soft); line-height: 1.55; max-width: 320px; }
+  .sensor-btn {
+    background: var(--ink); color: var(--paper); border: none;
+    padding: 16px 32px; border-radius: 0;
+    font-family: var(--display); font-weight: 800; font-size: 14px;
+    letter-spacing: 1px; cursor: pointer; margin-top: 8px;
+    text-transform: uppercase;
+    box-shadow: 5px 5px 0 var(--accent);
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  .sensor-btn:active { transform: translate(3px, 3px); box-shadow: 2px 2px 0 var(--accent); }
+
+  /* CHRONO — massive, top-aligned */
+  .chrono-overlay {
+    position: absolute; top: 12px; left: 12px; right: 12px;
+    z-index: 500; pointer-events: none;
+    background: var(--paper);
+    border: 3px solid var(--ink);
+    box-shadow: 5px 5px 0 var(--ink);
+    padding: 8px 14px 10px;
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 10px;
+  }
+  .chrono-meta {
+    display: flex; flex-direction: column; gap: 2px;
+    text-align: left; flex-shrink: 0;
+  }
+  .chrono-lap-tag {
+    font-family: var(--mono); font-size: 9px; font-weight: 700;
+    color: var(--ink); letter-spacing: 1.2px;
+    text-transform: uppercase;
+    background: var(--ink); color: var(--paper);
+    padding: 3px 6px; align-self: flex-start;
+  }
+  .chrono-time {
+    font-family: var(--mono); font-size: 44px; font-weight: 800;
+    color: var(--ink); line-height: 0.95; letter-spacing: -2px;
+    font-variant-numeric: tabular-nums;
+    text-align: right; flex: 1;
+  }
+  .chrono-time.recording { color: var(--accent); }
+  .lap-delta {
+    font-family: var(--mono); font-size: 13px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    min-height: 16px;
+    background: var(--ink); color: var(--paper);
+    padding: 2px 6px; align-self: flex-start;
+    margin-top: 2px;
+  }
+  .lap-delta:empty { display: none; }
+  .lap-delta.positive { background: var(--sec-red); }
+  .lap-delta.negative { background: var(--sec-green); color: var(--ink); }
+
+  /* HUD — bold cards bottom-left, stacked */
+  .hud-left {
+    position: absolute; bottom: 124px; left: 12px; z-index: 500;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .hud-box {
+    background: var(--paper);
+    border: 3px solid var(--ink);
+    box-shadow: 4px 4px 0 var(--ink);
+    padding: 8px 14px; min-width: 102px;
+  }
+  .hud-label {
+    font-family: var(--mono); font-size: 9px; font-weight: 700;
+    color: var(--ink-mute); letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  .hud-val {
+    font-family: var(--mono); font-size: 32px; font-weight: 800;
+    color: var(--ink); line-height: 1; letter-spacing: -1.5px;
+    font-variant-numeric: tabular-nums;
+    display: flex; align-items: baseline; gap: 4px;
+  }
+  .hud-val .unit {
+    font-size: 11px; color: var(--ink-mute); font-weight: 600;
+    letter-spacing: 0.4px; text-transform: uppercase;
+  }
+  .hud-box.gforce { background: var(--sec-yellow); }
+  .hud-box.gforce .hud-val { color: var(--ink); font-size: 22px; }
+
+  /* TOP RIGHT actions */
+  .map-actions {
+    position: absolute; top: 96px; right: 12px; z-index: 500;
+    display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+  }
+  .set-line-btn {
+    background: var(--paper);
+    border: 3px solid var(--ink);
+    box-shadow: 4px 4px 0 var(--ink);
+    color: var(--ink);
+    padding: 8px 12px; border-radius: 0;
+    font-family: var(--display); font-weight: 800; font-size: 11px;
+    letter-spacing: 0.6px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    text-transform: uppercase;
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  .set-line-btn:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--ink); }
+  .set-line-btn .icon { color: var(--ink); font-size: 14px; line-height: 1; }
+  .set-line-btn.active { background: var(--accent); color: var(--ink); }
+
+  .kalman-badge {
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    padding: 5px 9px;
+    font-family: var(--mono); font-size: 9px; font-weight: 700;
+    letter-spacing: 0.6px;
+    display: flex; align-items: center; gap: 5px;
+    text-transform: uppercase;
+  }
+  .kalman-badge::before {
+    content: ""; width: 6px; height: 6px;
+    background: rgba(255,255,255,0.3);
+    transition: background 0.2s;
+  }
+  .kalman-badge.active { background: var(--electric); }
+  .kalman-badge.active::before { background: white; }
+
+  /* BOTTOM CONTROLS */
+  .bottom-controls {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 10px 12px calc(12px + var(--safe-bot));
+    background: var(--paper);
+    border-top: 3px solid var(--ink);
+    z-index: 500;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .lap-times-mini { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px; }
+  .lap-times-mini:empty { display: none; }
+  .lap-chip {
+    flex-shrink: 0;
+    background: var(--bg2);
+    border: 2px solid var(--ink);
+    padding: 5px 9px;
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+  .lap-chip.best { background: var(--sec-purple); color: var(--paper); }
+  .lap-chip .lap-num { color: var(--ink-mute); margin-right: 5px; font-weight: 800; }
+  .lap-chip.best .lap-num { color: rgba(255,255,255,0.7); }
+
+  .controls-row { display: flex; gap: 8px; }
+  .btn {
+    flex: 1; padding: 16px;
+    border: 3px solid var(--ink);
+    border-radius: 0;
+    font-family: var(--display); font-weight: 800; font-size: 14px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    box-shadow: 4px 4px 0 var(--ink);
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .btn:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--ink); }
+  .btn-primary {
+    background: var(--accent); color: var(--ink);
+  }
+  .btn-primary.recording {
+    background: var(--sec-red); color: var(--paper);
+    animation: rec-shake 0.6s infinite;
+  }
+  @keyframes rec-shake {
+    0%,100% { transform: translate(0,0); }
+    50% { transform: translate(-1px, 1px); }
+  }
+  .btn-primary .rec-dot {
+    width: 10px; height: 10px;
+    background: currentColor;
+  }
+  .btn-primary.recording .rec-dot { width: 11px; height: 11px; }
+  .btn-secondary {
+    flex: 0 0 auto; width: 56px; padding: 16px 0;
+    font-size: 18px;
+    background: var(--paper);
+  }
+
+  /* LEADERBOARD */
+  #view-leaderboard { overflow-y: auto; padding: 16px 14px calc(20px + var(--safe-bot)); }
+  .lb-header {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    margin-bottom: 16px; gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 3px solid var(--ink);
+  }
+  .lb-title { font-family: var(--display); font-weight: 900; font-size: 32px; letter-spacing: -1.5px; text-transform: uppercase; line-height: 0.95; }
+  .circuit-select {
+    background: var(--paper); border: 2.5px solid var(--ink); color: var(--ink);
+    padding: 7px 28px 7px 12px; border-radius: 0;
+    font-family: var(--mono); font-size: 12px; font-weight: 700;
+    cursor: pointer; outline: none;
+    appearance: none; -webkit-appearance: none;
+    text-transform: uppercase; letter-spacing: 0.4px;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='none' stroke='black' stroke-width='2' d='M1 1l4 4 4-4'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+  }
+  .lb-entry {
+    background: var(--paper);
+    border: 2.5px solid var(--ink);
+    padding: 12px 14px;
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 8px;
+  }
+  .lb-entry.me { background: var(--accent); }
+  .lb-entry.p1 {
+    background: var(--ink); color: var(--paper);
+    box-shadow: 5px 5px 0 var(--accent);
+    margin-bottom: 14px;
+  }
+  .lb-rank {
+    font-family: var(--display); font-size: 22px; font-weight: 900;
+    color: var(--ink); min-width: 36px;
+    width: 40px; height: 40px;
+    display: grid; place-items: center;
+    background: var(--bg);
+    border: 2.5px solid var(--ink);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .lb-entry.p1 .lb-rank { background: var(--accent); color: var(--ink); border-color: var(--accent); font-size: 24px; }
+  .lb-entry.me .lb-rank { background: var(--ink); color: var(--accent); border-color: var(--ink); }
+  .lb-info { flex: 1; min-width: 0; }
+  .lb-name { font-family: var(--display); font-weight: 800; font-size: 16px; letter-spacing: -0.3px; text-transform: uppercase; line-height: 1.1; }
+  .lb-name .you-tag {
+    font-size: 9px; color: var(--paper); background: var(--ink);
+    padding: 2px 5px; margin-left: 6px;
+    font-weight: 800; letter-spacing: 0.5px; vertical-align: middle;
+  }
+  .lb-entry.me .lb-name .you-tag { background: var(--ink); color: var(--accent); }
+  .lb-entry.p1 .lb-name .you-tag { background: var(--accent); color: var(--ink); }
+  .lb-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-mute); margin-top: 3px; letter-spacing: 0.3px; text-transform: uppercase; font-weight: 600; }
+  .lb-entry.p1 .lb-meta { color: rgba(255,255,255,0.6); }
+  .lb-entry.me .lb-meta { color: var(--ink-soft); }
+  .lb-time {
+    font-family: var(--mono); font-weight: 800; font-size: 18px;
+    color: var(--ink); font-variant-numeric: tabular-nums;
+    letter-spacing: -0.5px; line-height: 1;
+  }
+  .lb-entry.p1 .lb-time { color: var(--accent); font-size: 22px; }
+  .lb-delta {
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    color: var(--ink-mute); text-align: right; margin-top: 3px;
+    font-variant-numeric: tabular-nums; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .lb-entry.p1 .lb-delta { color: var(--paper); }
+  .section-title {
+    font-family: var(--display); font-weight: 900; font-size: 14px;
+    letter-spacing: 0.4px; text-transform: uppercase;
+    color: var(--ink); margin: 18px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  /* SESSIONS */
+  #view-sessions { overflow-y: auto; padding: 16px 14px calc(20px + var(--safe-bot)); }
+  #view-sessions .section-title:first-child { margin-top: 0; }
+  .session-card {
+    background: var(--paper);
+    border: 2.5px solid var(--ink);
+    padding: 12px 14px; cursor: pointer;
+    margin-bottom: 10px;
+    transition: transform 0.1s, box-shadow 0.1s;
+    box-shadow: 4px 4px 0 var(--ink);
+  }
+  .session-card:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--ink); }
+  .session-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .session-circuit-wrap { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .session-circuit { font-family: var(--display); font-weight: 900; font-size: 18px; letter-spacing: -0.4px; text-transform: uppercase; line-height: 1; }
+  .session-tag {
+    font-family: var(--mono); font-size: 9px; font-weight: 800;
+    color: var(--paper); background: var(--electric);
+    padding: 3px 6px; letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .session-best-wrap { text-align: right; }
+  .session-best-label {
+    font-family: var(--mono); font-size: 9px; color: var(--ink-mute);
+    letter-spacing: 0.6px; font-weight: 700;
+    text-transform: uppercase;
+  }
+  .session-best {
+    font-family: var(--mono); font-weight: 800; font-size: 22px;
+    color: var(--ink); font-variant-numeric: tabular-nums;
+    letter-spacing: -1px; line-height: 1;
+  }
+  .session-bottom { display: flex; justify-content: space-between; margin-top: 8px; }
+  .session-meta {
+    font-family: var(--mono); font-size: 10px; color: var(--ink-mute);
+    letter-spacing: 0.3px; text-transform: uppercase; font-weight: 600;
+  }
+  .session-laps { display: flex; gap: 4px; margin-top: 12px; flex-wrap: wrap; }
+  .session-lap-pill {
+    background: var(--bg2);
+    border: 2px solid var(--ink);
+    padding: 3px 7px;
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+  .session-lap-pill.best { background: var(--sec-purple); color: var(--paper); border-color: var(--sec-purple); }
+
+  .toast {
+    position: fixed; bottom: calc(110px + var(--safe-bot)); left: 50%;
+    transform: translateX(-50%) translateY(16px);
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    padding: 12px 20px; border-radius: 0;
+    font-family: var(--display); font-size: 13px; font-weight: 700;
+    letter-spacing: 0.4px; text-transform: uppercase;
+    opacity: 0; pointer-events: none;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1000; white-space: nowrap;
+    box-shadow: 4px 4px 0 var(--accent);
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .start-line-label {
+    background: var(--accent); color: var(--ink);
+    border: 2px solid var(--ink);
+    font-family: var(--display); font-weight: 900; font-size: 10px;
+    padding: 3px 7px; border-radius: 0;
+    white-space: nowrap; letter-spacing: 0.6px;
+    text-transform: uppercase;
+    box-shadow: 2px 2px 0 var(--ink);
+  }
+
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); }
+  ::-webkit-scrollbar-thumb { background: var(--ink); }
+
+  /* PERF MODE */
+  #view-perf { display: none; flex-direction: column; overflow: hidden; }
+  #view-perf.active { display: flex; }
+
+  .perf-mode-bar {
+    display: flex; border-bottom: 3px solid var(--ink);
+    background: var(--paper); flex-shrink: 0;
+  }
+  .perf-mode-btn {
+    flex: 1; padding: 12px 6px; border: none; background: transparent;
+    font-family: var(--display); font-weight: 900; font-size: 14px;
+    letter-spacing: 1px; text-transform: uppercase; cursor: pointer;
+    color: var(--ink-mute); border-right: 2px solid var(--ink);
+    transition: background 0.15s;
+  }
+  .perf-mode-btn:last-child { border-right: none; }
+  .perf-mode-btn.active { background: var(--ink); color: var(--paper); }
+  .perf-mode-btn:active { background: var(--accent); color: var(--ink); }
+
+  .launch-mode-bar {
+    display: flex; align-items: center; gap: 0;
+    border-bottom: 2px solid var(--ink);
+    background: var(--bg2); flex-shrink: 0;
+    padding: 0 12px; height: 38px;
+  }
+  .launch-mode-label {
+    font-family: var(--mono); font-size: 9px; font-weight: 700;
+    letter-spacing: 1.5px; color: var(--ink-mute); margin-right: 10px;
+    text-transform: uppercase; flex-shrink: 0;
+  }
+  .launch-btn {
+    flex: 1; padding: 6px 10px; border: 2px solid var(--ink);
+    background: transparent; font-family: var(--display); font-weight: 800;
+    font-size: 12px; letter-spacing: 0.5px; text-transform: uppercase;
+    cursor: pointer; color: var(--ink-mute); display: flex;
+    align-items: center; gap: 5px; justify-content: center;
+    margin-right: 6px; transition: all 0.15s;
+  }
+  .launch-btn:last-child { margin-right: 0; }
+  .launch-btn.active { background: var(--ink); color: var(--paper); }
+  .launch-sub { font-family: var(--mono); font-size: 9px; font-weight: 400;
+    opacity: 0.7; text-transform: lowercase; letter-spacing: 0; }
+
+  .perf-main {
+    flex: 1; display: flex; flex-direction: column;
+    overflow: hidden; position: relative;
+  }
+
+  .perf-time-wrap {
+    padding: 20px 20px 10px; text-align: center; flex-shrink: 0;
+  }
+  .perf-label {
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    letter-spacing: 2px; color: var(--ink-mute); text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .perf-time {
+    font-family: var(--mono); font-size: 54px; font-weight: 800;
+    color: var(--ink); line-height: 1; letter-spacing: -3px;
+    font-variant-numeric: tabular-nums;
+  }
+  .perf-time.running { color: var(--accent); animation: perf-pulse 0.5s infinite alternate; }
+  .perf-time.done { color: var(--ink); }
+  @keyframes perf-pulse { from { opacity: 1; } to { opacity: 0.7; } }
+  .perf-sub {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 1.5px;
+    color: var(--ink-mute); margin-top: 6px; text-transform: uppercase;
+  }
+  .perf-sub.go { color: var(--sec-green); font-weight: 800; }
+  .perf-sub.armed { color: var(--accent); font-weight: 800; }
+  .perf-best {
+    font-family: var(--mono); font-size: 12px; color: var(--sec-purple);
+    font-weight: 700; margin-top: 4px; min-height: 18px;
+  }
+
+  #perf-graph {
+    flex: 1; min-height: 0; display: block;
+    background: var(--bg2); border-top: 2px solid var(--ink);
+  }
+
+  .perf-speed-hud {
+    position: absolute; top: 120px; left: 16px;
+    background: var(--ink); color: var(--paper);
+    padding: 8px 14px; text-align: center;
+    border: 2px solid var(--ink);
+  }
+  .perf-speed-val {
+    font-family: var(--mono); font-size: 28px; font-weight: 800;
+    line-height: 1; font-variant-numeric: tabular-nums;
+  }
+  .perf-speed-unit {
+    font-family: var(--mono); font-size: 9px; color: rgba(255,255,255,0.5);
+    letter-spacing: 1px; margin-top: 2px;
+  }
+
+  .perf-controls {
+    flex-shrink: 0; padding: 12px 14px calc(12px + var(--safe-bot));
+    border-top: 2px solid var(--ink); background: var(--paper);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .perf-records {
+    display: flex; gap: 8px; overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .perf-record-chip {
+    flex-shrink: 0; background: var(--bg2); border: 2px solid var(--ink);
+    padding: 5px 10px; font-family: var(--mono); font-size: 11px;
+    font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .perf-record-chip.best { background: var(--sec-purple); color: var(--paper); border-color: var(--sec-purple); }
+
+  /* MINI TRACK MAP */
+  .session-map-wrap {
+    width: 100%; aspect-ratio: 16/7;
+    background: var(--bg2); border: 2px solid var(--ink);
+    margin-bottom: 10px; overflow: hidden; position: relative;
+  }
+  .session-map-svg { width: 100%; height: 100%; display: block; }
+  .session-map-empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 10px; color: var(--ink-mute);
+    letter-spacing: 1px; text-transform: uppercase;
+  }
+
+  .empty-state {
+    text-align: center; padding: 60px 20px;
+    color: var(--ink-soft); font-family: var(--font); font-size: 14px; line-height: 1.6;
+  }
+  .empty-state strong {
+    display: block; color: var(--ink); font-size: 16px; font-weight: 900;
+    margin-bottom: 4px; letter-spacing: -0.2px;
+    font-family: var(--display); text-transform: uppercase;
+  }
+  .empty-icon {
+    width: 56px; height: 56px; border-radius: 0;
+    background: var(--accent); border: 3px solid var(--ink);
+    display: grid; place-items: center; margin: 0 auto 14px;
+    font-size: 24px; box-shadow: 4px 4px 0 var(--ink);
+  }
+
+  /* ANALYSE */
+  .stat-card {
+    background: var(--paper);
+    border: 2.5px solid var(--ink);
+    padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 4px;
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+  .stat-val {
+    font-family: var(--mono); font-size: 24px; font-weight: 800;
+    color: var(--ink); line-height: 1; letter-spacing: -0.8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-val.accent { color: var(--accent); }
+  .stat-val.blue { color: var(--electric); }
+  .stat-val.gold { color: var(--ink); background: var(--sec-yellow); padding: 4px 6px; align-self: flex-start; margin-left: -2px; }
+  .stat-val.red { color: var(--paper); background: var(--sec-red); padding: 4px 6px; align-self: flex-start; }
+  .stat-val.green { color: var(--paper); background: var(--sec-green); padding: 4px 6px; align-self: flex-start; }
+  .stat-val.purple { color: var(--paper); background: var(--sec-purple); padding: 4px 6px; align-self: flex-start; }
+  .stat-label {
+    font-family: var(--mono); font-size: 9px; color: var(--ink-mute);
+    letter-spacing: 0.5px; text-transform: uppercase; font-weight: 700;
+  }
+  .sector-row {
+    background: var(--paper);
+    border: 2.5px solid var(--ink);
+    padding: 10px 12px;
+    display: flex; align-items: center; gap: 10px;
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+  .sector-label {
+    font-family: var(--display); font-weight: 900; font-size: 12px;
+    letter-spacing: 0.5px; min-width: 32px;
+    width: 32px; height: 32px; border-radius: 0;
+    display: grid; place-items: center;
+    background: var(--ink); color: var(--paper);
+    border: 2px solid var(--ink);
+  }
+  .sector-bar-wrap {
+    flex: 1; height: 8px;
+    background: var(--bg2);
+    border: 1.5px solid var(--ink);
+    overflow: hidden;
+  }
+  .sector-bar { height: 100%; transition: width 0.5s ease; }
+  .sector-info-mini {
+    font-family: var(--mono); font-size: 9px; color: var(--ink-mute);
+    margin-top: 4px; letter-spacing: 0.3px; font-weight: 600;
+    text-transform: uppercase;
+  }
+  .sector-time {
+    font-family: var(--mono); font-size: 14px; font-weight: 800;
+    min-width: 64px; text-align: right; font-variant-numeric: tabular-nums;
+    letter-spacing: -0.5px;
+  }
+  .sector-delta {
+    font-family: var(--mono); font-size: 11px; font-weight: 800;
+    min-width: 58px; text-align: right; font-variant-numeric: tabular-nums;
+    padding: 3px 5px;
+    color: var(--ink-mute);
+  }
+  .sector-delta.pos { background: var(--sec-red); color: var(--paper); }
+  .sector-delta.neg { background: var(--sec-green); color: var(--ink); }
+
+  /* Big bold "BEST" tag style for podium */
+  .pole-tag {
+    font-family: var(--display); font-weight: 900; font-size: 9px;
+    background: var(--accent); color: var(--ink);
+    padding: 3px 6px; letter-spacing: 0.6px;
+    border: 1.5px solid var(--ink);
+    text-transform: uppercase;
+    display: inline-block;
+  }
+
+  /* ── MODE SELECTOR OVERLAY ── */
+  .mode-overlay {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--paper);
+    z-index: 1500;
+    display: flex; flex-direction: column;
+    padding: 24px 20px;
+    gap: 16px;
+    overflow-y: auto;
+  }
+  .mode-overlay.hidden { display: none; }
+  .mode-title {
+    font-family: var(--display); font-weight: 900; font-size: 26px;
+    text-transform: uppercase; letter-spacing: -1px; color: var(--ink);
+    border-bottom: 3px solid var(--ink); padding-bottom: 12px;
+  }
+  .mode-subtitle { font-family: var(--mono); font-size: 11px; color: var(--ink-mute); letter-spacing: 0.5px; margin-top: -8px; }
+  .mode-card {
+    border: 2.5px solid var(--ink); padding: 20px; cursor: pointer;
+    transition: background 0.15s; background: var(--bg);
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .mode-card:active { background: var(--ink); color: var(--paper); }
+  .mode-card.selected { background: var(--ink); color: var(--paper); }
+  .mode-card.selected .mode-card-sub { color: rgba(255,255,255,0.6); }
+  .mode-card-title { font-family: var(--display); font-weight: 900; font-size: 20px; text-transform: uppercase; letter-spacing: -0.5px; }
+  .mode-card-sub { font-family: var(--mono); font-size: 11px; color: var(--ink-mute); }
+  .mode-card-icon { font-size: 28px; margin-bottom: 4px; }
+
+  /* Multi mode — drivers list */
+  .drivers-section { display: flex; flex-direction: column; gap: 8px; }
+  .drivers-section.hidden { display: none; }
+  .driver-row {
+    display: flex; gap: 8px; align-items: center;
+  }
+  .driver-input {
+    flex: 1; border: 2px solid var(--ink); background: var(--bg2);
+    padding: 10px 12px; font-family: var(--mono); font-size: 14px;
+    font-weight: 700; color: var(--ink); outline: none;
+  }
+  .driver-vehicle {
+    width: 110px; border: 2px solid var(--ink); background: var(--bg2);
+    padding: 10px 8px; font-family: var(--mono); font-size: 12px;
+    font-weight: 600; color: var(--ink); outline: none;
+  }
+  .driver-remove {
+    border: 2px solid var(--ink); background: transparent; width: 36px; height: 44px;
+    font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .add-driver-btn {
+    border: 2px dashed var(--ink); background: transparent; padding: 10px;
+    font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: 1px;
+    cursor: pointer; color: var(--ink-mute); text-transform: uppercase;
+  }
+  .mode-start-btn {
+    background: var(--accent); border: 2.5px solid var(--ink); color: var(--ink);
+    padding: 16px; font-family: var(--display); font-weight: 900; font-size: 18px;
+    text-transform: uppercase; letter-spacing: 1px; cursor: pointer; margin-top: 4px;
+  }
+  .mode-start-btn:active { background: var(--ink); color: var(--paper); }
+
+  /* Driver HUD (multi mode) */
+  .driver-hud {
+    position: absolute; top: 110px; left: 50%; transform: translateX(-50%);
+    z-index: 600; display: none;
+    background: var(--ink); color: var(--paper);
+    border: 2.5px solid var(--ink);
+    padding: 6px 18px; text-align: center;
+    font-family: var(--display); font-weight: 900;
+    font-size: 14px; letter-spacing: 1px; text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .driver-hud.visible { display: block; }
+
+  /* Driver switcher overlay (between laps in multi) */
+  .driver-switcher {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--ink); z-index: 1400;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 20px; padding: 32px;
+    text-align: center;
+  }
+  .driver-switcher.hidden { display: none; }
+  .switcher-title { font-family: var(--display); font-weight: 900; font-size: 14px; letter-spacing: 3px; color: rgba(255,255,255,0.5); text-transform: uppercase; }
+  .switcher-name { font-family: var(--display); font-weight: 900; font-size: 42px; color: var(--paper); letter-spacing: -2px; text-transform: uppercase; line-height: 1; }
+  .switcher-vehicle { font-family: var(--mono); font-size: 14px; color: var(--accent); margin-top: 4px; }
+  .switcher-prev { font-family: var(--mono); font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 8px; }
+  .switcher-btn {
+    background: var(--accent); border: 2.5px solid var(--paper); color: var(--ink);
+    padding: 18px 40px; font-family: var(--display); font-weight: 900;
+    font-size: 20px; letter-spacing: 1px; text-transform: uppercase; cursor: pointer;
+    margin-top: 8px;
+  }
+
+  /* Multi leaderboard */
+  .multi-lb { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .multi-lb-row {
+    display: flex; align-items: center; gap: 12px;
+    border: 2px solid var(--ink); padding: 12px 14px; background: var(--bg);
+  }
+  .multi-lb-row.p1 { background: var(--accent); }
+  .multi-lb-rank { font-family: var(--display); font-weight: 900; font-size: 24px; min-width: 28px; }
+  .multi-lb-info { flex: 1; }
+  .multi-lb-name { font-family: var(--display); font-weight: 800; font-size: 16px; text-transform: uppercase; }
+  .multi-lb-vehicle { font-family: var(--mono); font-size: 11px; color: var(--ink-mute); }
+  .multi-lb-time { font-family: var(--mono); font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .multi-lb-delta { font-family: var(--mono); font-size: 11px; color: var(--ink-mute); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">LapTrack <span>· timing</span></div>
+  <div class="status-row">
+    <div class="badge">
+      <div class="dot" id="gps-dot"></div>
+      <span id="gps-status">GPS</span>
+    </div>
+    <div class="badge">
+      <div class="dot" id="imu-dot"></div>
+      <span id="imu-status">IMU</span>
+    </div>
+  </div>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('track')">PISTE</div>
+  <div class="tab" onclick="switchTab('leaderboard')">CLASSEMENT</div>
+  <div class="tab" onclick="switchTab('sessions')">SESSIONS</div>
+  <div class="tab" onclick="switchTab('analyse')">ANALYSE</div>
+  <div class="tab" onclick="switchTab('perf')">PERF</div>
+</div>
+
+<!-- TRACK VIEW -->
+<div class="view active" id="view-track" style="position:relative;">
+
+  <!-- Mode selector overlay -->
+  <div class="mode-overlay" id="mode-overlay">
+    <div class="mode-title">Nouvelle session</div>
+    <div class="mode-subtitle">CHOISIS TON MODE DE JEU</div>
+
+    <!-- Circuit name -->
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <div style="font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--ink-mute);">Circuit</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input class="driver-input" id="circuit-name-input" placeholder="Nom du circuit..." maxlength="32"
+          style="flex:1;" list="circuit-suggestions"/>
+        <datalist id="circuit-suggestions"></datalist>
+      </div>
+    </div>
+
+    <div class="mode-card selected" id="mode-solo-card" onclick="selectMode('solo')">
+      <div class="mode-card-icon">👤</div>
+      <div class="mode-card-title">Solo</div>
+      <div class="mode-card-sub">Tu te bats contre tes propres meilleurs temps</div>
+    </div>
+
+    <div class="mode-card" id="mode-multi-card" onclick="selectMode('multi')">
+      <div class="mode-card-icon">👥</div>
+      <div class="mode-card-title">Multi — même iPhone</div>
+      <div class="mode-card-sub">Plusieurs pilotes se passent le téléphone à tour de rôle</div>
+    </div>
+
+    <div class="drivers-section hidden" id="drivers-section">
+      <div style="font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--ink-mute);margin-top:4px;">Pilotes de la session</div>
+      <div id="drivers-list"></div>
+      <button class="add-driver-btn" onclick="addDriverRow()">+ Ajouter un pilote</button>
+    </div>
+
+    <button class="mode-start-btn" onclick="startSession()">Lancer la session →</button>
+  </div>
+
+  <!-- Driver switcher (between laps in multi) -->
+  <div class="driver-switcher hidden" id="driver-switcher">
+    <div class="switcher-title">Au tour de</div>
+    <div class="switcher-name" id="switcher-name">—</div>
+    <div class="switcher-vehicle" id="switcher-vehicle"></div>
+    <div class="switcher-prev" id="switcher-prev"></div>
+    <button class="switcher-btn" onclick="confirmDriverSwitch()">C'est parti →</button>
+  </div>
+
+  <!-- Current driver HUD (multi mode) -->
+  <div class="driver-hud" id="driver-hud"></div>
+
+  <!-- Sensor permission overlay -->
+  <div class="sensor-overlay" id="sensor-overlay">
+    <div class="sensor-icon-wrap"><div class="sensor-icon">📡</div></div>
+    <div class="sensor-title">Accès aux capteurs</div>
+    <div class="sensor-desc">
+      LapTrack utilise le GPS et l'accéléromètre pour une précision maximale. Sur iPhone, Safari demande ton autorisation pour accéder aux capteurs de mouvement.
+    </div>
+    <button class="sensor-btn" onclick="requestSensors()">Autoriser</button>
+  </div>
+
+  <div id="map"></div>
+
+  <!-- HUD gauche : vitesse + G -->
+  <div class="hud-left">
+    <div class="hud-box">
+      <div class="hud-label">VITESSE</div>
+      <div class="hud-val"><span id="speed-display">0</span><span class="unit">km/h</span></div>
+    </div>
+    <div class="hud-box gforce">
+      <div class="hud-label">G LATÉRAL</div>
+      <div class="hud-val"><span id="gforce-display">0.0</span><span class="unit">g</span></div>
+    </div>
+  </div>
+
+  <!-- Chrono -->
+  <div class="chrono-overlay">
+    <div class="chrono-meta">
+      <div class="chrono-lap-tag" id="chrono-lap">EN ATTENTE</div>
+      <div class="lap-delta" id="lap-delta"></div>
+    </div>
+    <div class="chrono-time" id="chrono-display">00:00.00</div>
+  </div>
+
+  <!-- Top right actions -->
+  <div class="map-actions">
+    <button class="set-line-btn" id="set-line-btn" onclick="toggleSetLine()">
+      <span class="icon">⊕</span> <span id="set-line-label">Ligne départ</span>
+    </button>
+    <button class="set-line-btn" id="reset-heading-btn" onclick="resetHeading()"
+      style="top:150px;display:none;border-color:rgba(255,77,26,0.5);color:#ff4d1a;">
+      ↺ Direction
+    </button>
+    <div class="kalman-badge" id="kalman-badge">KALMAN OFF</div>
+  </div>
+
+  <!-- Circuit name badge on map -->
+  <div id="circuit-badge" style="
+    position:absolute; bottom:90px; left:50%; transform:translateX(-50%);
+    z-index:500; background:rgba(10,10,15,0.85);
+    border:1.5px solid rgba(255,255,255,0.15);
+    padding:4px 12px; border-radius:20px;
+    font-family:var(--mono); font-size:11px; font-weight:700;
+    letter-spacing:1px; color:rgba(255,255,255,0.5);
+    white-space:nowrap; pointer-events:none;
+  ">MON CIRCUIT</div>
+    <div class="lap-times-mini" id="lap-times-mini"></div>
+    <div class="controls-row">
+      <button class="btn btn-secondary" onclick="resetSession()" title="Reset">↺</button>
+      <button class="btn btn-primary" id="rec-btn" onclick="toggleRecording()">
+        <span class="rec-dot" id="rec-icon"></span>
+        <span id="rec-label">Démarrer</span>
+      </button>
+      <button class="btn btn-secondary" onclick="centerMap()" title="Centrer">◎</button>
+    </div>
+  </div>
+</div>
+
+<!-- LEADERBOARD VIEW -->
+<div class="view" id="view-leaderboard">
+  <div class="lb-header">
+    <div>
+      <div class="lb-title">Classement</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:0.4px;margin-top:2px">MEILLEUR TEMPS PAR PILOTE</div>
+    </div>
+    <select class="circuit-select" id="circuit-select" onchange="renderLeaderboard()">
+      <option value="all">Tous les circuits</option>
+    </select>
+  </div>
+  <div id="lb-content"></div>
+</div>
+
+<!-- SESSIONS VIEW -->
+<div class="view" id="view-sessions">
+  <div class="section-title">Mes sessions</div>
+  <div id="sessions-content"></div>
+</div>
+
+<!-- ANALYSE VIEW -->
+<div class="view" id="view-analyse">
+  <div style="padding:16px;overflow-y:auto;flex:1;gap:12px;display:flex;flex-direction:column;">
+
+    <!-- Lap selector -->
+    <div style="display:flex;gap:8px;align-items:center;">
+      <div class="section-title" style="margin:0;flex:1">Analyse du tour</div>
+      <select class="circuit-select" id="analyse-lap-select" onchange="renderAnalyse()">
+        <option value="-1">— Sélectionne un tour —</option>
+      </select>
+    </div>
+
+    <!-- Stats grid -->
+    <div id="analyse-stats" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"></div>
+
+    <!-- Sectors -->
+    <div id="analyse-sectors"></div>
+
+    <!-- Speed graph -->
+    <div id="analyse-graph-wrap" style="display:none;">
+      <div class="section-title">Vitesse sur le tour</div>
+      <canvas id="speed-graph" style="width:100%;height:160px;border-radius:10px;background:var(--bg2);"></canvas>
+    </div>
+
+    <div id="analyse-empty" class="empty-state">
+      <span class="empty-icon">📊</span>
+      <strong>Aucun tour à analyser</strong>
+      Fais au moins un tour complet pour voir l'analyse détaillée.
+    </div>
+  </div>
+</div>
+
+<!-- PERF VIEW -->
+<div class="view" id="view-perf">
+  <div style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+
+    <!-- Run mode selector -->
+    <div class="perf-mode-bar" id="perf-mode-bar">
+      <button class="perf-mode-btn active" id="pbtn-0100" onclick="setPerfMode('0-100')">0–100</button>
+      <button class="perf-mode-btn" id="pbtn-100200" onclick="setPerfMode('100-200')">100–200</button>
+      <button class="perf-mode-btn" id="pbtn-curve" onclick="setPerfMode('curve')">COURBE</button>
+    </div>
+
+    <!-- Launch mode selector -->
+    <div class="launch-mode-bar">
+      <div class="launch-mode-label">DÉPART</div>
+      <button class="launch-btn active" id="lbtn-auto" onclick="setLaunchMode('auto')">
+        AUTO <span class="launch-sub">accéléromètre</span>
+      </button>
+      <button class="launch-btn" id="lbtn-manual" onclick="setLaunchMode('manual')">
+        MANUEL <span class="launch-sub">bouton</span>
+      </button>
+    </div>
+
+    <!-- Main display -->
+    <div class="perf-main">
+      <div class="perf-time-wrap" id="perf-time-wrap">
+        <div class="perf-label" id="perf-label">0 → 100 KM/H</div>
+        <div class="perf-time" id="perf-time">–:––.–––</div>
+        <div class="perf-sub" id="perf-sub">EN ATTENTE DE DÉPART</div>
+        <div class="perf-best" id="perf-best"></div>
+      </div>
+      <canvas id="perf-graph" style="width:100%;flex:1;min-height:0;display:block;"></canvas>
+    </div>
+
+    <!-- Speed HUD -->
+    <div class="perf-speed-hud">
+      <div class="perf-speed-val" id="perf-speed-val">0</div>
+      <div class="perf-speed-unit">KM/H</div>
+    </div>
+
+    <!-- Controls -->
+    <div class="perf-controls">
+      <div class="perf-records" id="perf-records"></div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-secondary" style="flex:0 0 auto;padding:14px 18px;" onclick="perfReset()">↺</button>
+        <button class="btn btn-primary" id="perf-arm-btn" onclick="perfArm()" style="flex:1;">
+          <span id="perf-arm-label">ARMER</span>
+        </button>
+        <!-- Manual launch button — hidden by default -->
+        <button class="btn btn-primary" id="perf-go-btn" onclick="perfManualLaunch()"
+          style="flex:1;display:none;background:#ff4d1a;">
+          GO !
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════
+// WAKE LOCK — empêche l'écran de s'éteindre
+// pendant un run ou un enregistrement
+// ══════════════════════════════════════
+const WakeLock = (() => {
+  let _lock = null;
+
+  async function request() {
+    if (!('wakeLock' in navigator)) return; // non supporté
+    try {
+      _lock = await navigator.wakeLock.request('screen');
+      _lock.addEventListener('release', () => { _lock = null; });
+    } catch (e) {
+      // Silently fail — pas critique
+    }
+  }
+
+  function release() {
+    if (_lock) { _lock.release(); _lock = null; }
+  }
+
+  // Re-acquérir le lock quand l'app revient au premier plan
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible' && _lock === null) {
+      // Seulement si un run est en cours
+      if (typeof STATE !== 'undefined' && (STATE.recording || (typeof PERF !== 'undefined' && PERF.state === 'running'))) {
+        await request();
+      }
+    }
+  });
+
+  return { request, release };
+})();
+
+
+// Remplace localStorage pour une persistance
+// fiable sur iOS Safari (résiste à ITP)
+// ══════════════════════════════════════
+const DB = (() => {
+  const DB_NAME = 'laptrack_db';
+  const DB_VERSION = 1;
+  const STORE = 'kv'; // simple key-value store
+  let _db = null;
+
+  function open() {
+    return new Promise((resolve, reject) => {
+      if (_db) { resolve(_db); return; }
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = e => {
+        e.target.result.createObjectStore(STORE, { keyPath: 'k' });
+      };
+      req.onsuccess = e => { _db = e.target.result; resolve(_db); };
+      req.onerror = e => reject(e.target.error);
+    });
+  }
+
+  async function get(key) {
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).get(key);
+      req.onsuccess = e => resolve(e.target.result?.v ?? null);
+      req.onerror = e => reject(e.target.error);
+    });
+  }
+
+  async function set(key, value) {
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).put({ k: key, v: value });
+      tx.oncomplete = () => resolve();
+      tx.onerror = e => reject(e.target.error);
+    });
+  }
+
+  // Fallback to localStorage if IndexedDB unavailable (private mode)
+  const LS = {
+    get: k => { try { const v = localStorage.getItem(k); return Promise.resolve(v ? JSON.parse(v) : null); } catch { return Promise.resolve(null); } },
+    set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} return Promise.resolve(); }
+  };
+
+  // Test IndexedDB availability
+  let useIDB = true;
+  try { indexedDB.open('_test').onsuccess = e => e.target.result.close(); } catch { useIDB = false; }
+
+  return {
+    get: k => useIDB ? get(k).catch(() => LS.get(k)) : LS.get(k),
+    set: (k, v) => useIDB ? set(k, v).catch(() => LS.set(k, v)) : LS.set(k, v),
+  };
+})();
+
+
+class KalmanFilter {
+  constructor() {
+    // State: [lat, lng, vLat, vLng]
+    this.x = null; // state vector
+    // Process noise (how much we trust the model)
+    this.Q_pos = 0.0001;
+    this.Q_vel = 0.001;
+    // Measurement noise (how much we trust GPS)
+    this.R = 0.00005;
+    // Error covariance
+    this.P = [[10,0,0,0],[0,10,0,0],[0,0,10,0],[0,0,0,10]];
+    this.lastTime = null;
+    this.active = false;
+  }
+
+  init(lat, lng, vLat, vLng) {
+    this.x = [lat, lng, vLat, vLng];
+    this.lastTime = Date.now();
+    this.active = true;
+  }
+
+  // Predict step: advance state using IMU acceleration
+  predict(accelLat, accelLng) {
+    if (!this.active) return;
+    const now = Date.now();
+    const dt = Math.min((now - this.lastTime) / 1000, 0.1); // seconds, max 100ms
+    this.lastTime = now;
+
+    // State transition: position += velocity*dt, velocity += accel*dt
+    this.x[0] += this.x[2] * dt + 0.5 * accelLat * dt * dt;
+    this.x[1] += this.x[3] * dt + 0.5 * accelLng * dt * dt;
+    this.x[2] += accelLat * dt;
+    this.x[3] += accelLng * dt;
+
+    // Update covariance P = P + Q
+    this.P[0][0] += this.Q_pos;
+    this.P[1][1] += this.Q_pos;
+    this.P[2][2] += this.Q_vel;
+    this.P[3][3] += this.Q_vel;
+  }
+
+  // Update step: correct with GPS measurement
+  update(lat, lng) {
+    if (!this.active) {
+      this.init(lat, lng, 0, 0);
+      return { lat, lng };
+    }
+
+    // Kalman gain K = P / (P + R)
+    const Kx = this.P[0][0] / (this.P[0][0] + this.R);
+    const Ky = this.P[1][1] / (this.P[1][1] + this.R);
+
+    // Correct state
+    this.x[0] += Kx * (lat - this.x[0]);
+    this.x[1] += Ky * (lng - this.x[1]);
+
+    // Update covariance
+    this.P[0][0] *= (1 - Kx);
+    this.P[1][1] *= (1 - Ky);
+
+    return { lat: this.x[0], lng: this.x[1] };
+  }
+
+  getPosition() {
+    if (!this.x) return null;
+    return { lat: this.x[0], lng: this.x[1] };
+  }
+
+  getSpeed() {
+    if (!this.x) return 0;
+    const vLat = this.x[2] * 111320;
+    const vLng = this.x[3] * 111320 * Math.cos(this.x[0] * Math.PI / 180);
+    return Math.sqrt(vLat * vLat + vLng * vLng) * 3.6;
+  }
+
+  // Zero-velocity update: force velocity to 0 when GPS confirms stopped
+  zeroVelocity() {
+    if (!this.x) return;
+    this.x[2] = 0;
+    this.x[3] = 0;
+    this.P[2][2] = 0.0001;
+    this.P[3][3] = 0.0001;
+  }
+}
+
+// ══════════════════════════════════════
+// STATE
+// ══════════════════════════════════════
+const STATE = {
+  gpsActive: false,
+  imuActive: false,
+  recording: false,
+  settingLine: false,
+  startLine: null,
+  startLineRadius: 15,
+  currentPos: null,
+  lapStartTime: null,
+  lapNumber: 0,
+  laps: [],
+  currentPoints: [],
+  sessions: [],
+  watchId: null,
+  chronoInterval: null,
+  crossedLine: false,
+  circuitName: 'Mon Circuit',
+  userName: null,
+  // IMU
+  accelX: 0, accelY: 0, accelZ: 0,
+  gLateral: 0,
+  imuInterval: null,
+  sensorsAuthorized: false,
+  // MODE
+  mode: 'solo',            // 'solo' | 'multi'
+  drivers: [],             // [{name, vehicle}]
+  currentDriverIdx: 0,     // index dans drivers[]
+  driverResults: [],       // [{name, vehicle, bestLap, laps[]}]
+};
+
+const kalman = new KalmanFilter();
+
+// ══════════════════════════════════════
+// MAP
+// ══════════════════════════════════════
+const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([47.2184, -1.5536], 15);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(map);
+
+let trackLayer = L.layerGroup().addTo(map);
+let posMarker = null;
+let startMarker = null;
+let startCircle = null;
+let carHeading = 0; // degrés, nord = 0
+
+function carSVG(heading) {
+  return `
+  <div id="car-marker" style="
+    width:32px; height:52px;
+    transform: rotate(${heading}deg);
+    transform-origin: center center;
+    filter: drop-shadow(2px 4px 6px rgba(0,0,0,0.7));
+    transition: transform 0.3s ease;
+  ">
+    <svg width="32" height="52" viewBox="0 0 32 52" xmlns="http://www.w3.org/2000/svg">
+
+      <!-- Carrosserie principale — Bleu Pharaon #1B4B8A -->
+      <path d="M6 14 Q6 9 16 7 Q26 9 26 14 L26 40 Q26 45 16 47 Q6 45 6 40 Z"
+        fill="#1B4B8A" stroke="#0d2e5a" stroke-width="1.2"/>
+
+      <!-- Flancs avec léger galbe 306 -->
+      <path d="M6 16 Q4 22 4 31 Q4 38 6 41" fill="none" stroke="#0d2e5a" stroke-width="0.8"/>
+      <path d="M26 16 Q28 22 28 31 Q28 38 26 41" fill="none" stroke="#0d2e5a" stroke-width="0.8"/>
+
+      <!-- Capot avant — forme 306 avec nervure centrale -->
+      <path d="M8 14 Q16 6 24 14" fill="#1a4880" stroke="#0d2e5a" stroke-width="1"/>
+      <line x1="16" y1="7" x2="16" y2="14" stroke="#0d2e5a" stroke-width="0.6" opacity="0.5"/>
+
+      <!-- Pare-brise avant incliné -->
+      <path d="M9 14 Q16 11 23 14 L22 19 Q16 17 10 19 Z"
+        fill="#a8d4f5" stroke="#0d2e5a" stroke-width="0.8" opacity="0.85"/>
+
+      <!-- Toit 306 — profil fastback -->
+      <path d="M10 19 Q16 18 22 19 L21 32 Q16 33 11 32 Z"
+        fill="#142f5a" stroke="#0d2e5a" stroke-width="0.8"/>
+
+      <!-- Lunette arrière légèrement inclinée -->
+      <path d="M11 32 Q16 31 21 32 L22 37 Q16 38 10 37 Z"
+        fill="#7ab8e0" stroke="#0d2e5a" stroke-width="0.8" opacity="0.7"/>
+
+      <!-- Coffre arrière 306 — court et arrondi -->
+      <path d="M8 40 Q16 47 24 40" fill="#163d72" stroke="#0d2e5a" stroke-width="1"/>
+
+      <!-- Phares avant ronds 306 (double optique) -->
+      <ellipse cx="10" cy="13" rx="3" ry="2" fill="#fffde0" stroke="#0d2e5a" stroke-width="0.8"/>
+      <ellipse cx="22" cy="13" rx="3" ry="2" fill="#fffde0" stroke="#0d2e5a" stroke-width="0.8"/>
+      <!-- Contour chromé phare -->
+      <ellipse cx="10" cy="13" rx="2" ry="1.3" fill="none" stroke="#c8c8c8" stroke-width="0.5"/>
+      <ellipse cx="22" cy="13" rx="2" ry="1.3" fill="none" stroke="#c8c8c8" stroke-width="0.5"/>
+
+      <!-- Feux arrière 306 — en L -->
+      <path d="M8 40 L8 43 Q10 45 12 44 L11 40 Z" fill="#ff3030" stroke="#0d2e5a" stroke-width="0.6"/>
+      <path d="M24 40 L24 43 Q22 45 20 44 L21 40 Z" fill="#ff3030" stroke="#0d2e5a" stroke-width="0.6"/>
+      <!-- Clignotants arrière -->
+      <path d="M12 43 L14 44 L14 41 L12 40 Z" fill="#ff8800" stroke="#0d2e5a" stroke-width="0.4"/>
+      <path d="M20 43 L18 44 L18 41 L20 40 Z" fill="#ff8800" stroke="#0d2e5a" stroke-width="0.4"/>
+
+      <!-- Jupe avant + prise d'air -->
+      <path d="M10 14 Q16 12 22 14 L21 16 Q16 14.5 11 16 Z" fill="#0d2e5a" opacity="0.6"/>
+      <rect x="13" y="14" width="6" height="2" rx="0.5" fill="#0a0a0a" opacity="0.8"/>
+
+      <!-- Jupe arrière -->
+      <path d="M10 41 Q16 44 22 41 L21 43 Q16 46 11 43 Z" fill="#0d2e5a" opacity="0.5"/>
+
+      <!-- ══ ROUES OZ Racing blanches 16" ══ -->
+      <!-- Avant gauche -->
+      <rect x="0" y="11" width="7" height="11" rx="2.5" fill="#1a1a1a" stroke="#0a0a0a" stroke-width="1"/>
+      <rect x="0.8" y="12" width="5.4" height="9" rx="2" fill="#f0f0f0"/>
+      <!-- Rayons OZ -->
+      <line x1="3.5" y1="12.5" x2="3.5" y2="20.5" stroke="#999" stroke-width="0.7"/>
+      <line x1="1" y1="16.5" x2="6" y2="16.5" stroke="#999" stroke-width="0.7"/>
+      <line x1="1.5" y1="13.5" x2="5.5" y2="19.5" stroke="#999" stroke-width="0.5"/>
+      <line x1="5.5" y1="13.5" x2="1.5" y2="19.5" stroke="#999" stroke-width="0.5"/>
+      <circle cx="3.5" cy="16.5" r="1.2" fill="#ccc" stroke="#999" stroke-width="0.4"/>
+
+      <!-- Avant droit -->
+      <rect x="25" y="11" width="7" height="11" rx="2.5" fill="#1a1a1a" stroke="#0a0a0a" stroke-width="1"/>
+      <rect x="25.8" y="12" width="5.4" height="9" rx="2" fill="#f0f0f0"/>
+      <line x1="28.5" y1="12.5" x2="28.5" y2="20.5" stroke="#999" stroke-width="0.7"/>
+      <line x1="26" y1="16.5" x2="31" y2="16.5" stroke="#999" stroke-width="0.7"/>
+      <line x1="26.5" y1="13.5" x2="30.5" y2="19.5" stroke="#999" stroke-width="0.5"/>
+      <line x1="30.5" y1="13.5" x2="26.5" y2="19.5" stroke="#999" stroke-width="0.5"/>
+      <circle cx="28.5" cy="16.5" r="1.2" fill="#ccc" stroke="#999" stroke-width="0.4"/>
+
+      <!-- Arrière gauche -->
+      <rect x="0" y="30" width="7" height="11" rx="2.5" fill="#1a1a1a" stroke="#0a0a0a" stroke-width="1"/>
+      <rect x="0.8" y="31" width="5.4" height="9" rx="2" fill="#f0f0f0"/>
+      <line x1="3.5" y1="31.5" x2="3.5" y2="39.5" stroke="#999" stroke-width="0.7"/>
+      <line x1="1" y1="35.5" x2="6" y2="35.5" stroke="#999" stroke-width="0.7"/>
+      <line x1="1.5" y1="32.5" x2="5.5" y2="38.5" stroke="#999" stroke-width="0.5"/>
+      <line x1="5.5" y1="32.5" x2="1.5" y2="38.5" stroke="#999" stroke-width="0.5"/>
+      <circle cx="3.5" cy="35.5" r="1.2" fill="#ccc" stroke="#999" stroke-width="0.4"/>
+
+      <!-- Arrière droit -->
+      <rect x="25" y="30" width="7" height="11" rx="2.5" fill="#1a1a1a" stroke="#0a0a0a" stroke-width="1"/>
+      <rect x="25.8" y="31" width="5.4" height="9" rx="2" fill="#f0f0f0"/>
+      <line x1="28.5" y1="31.5" x2="28.5" y2="39.5" stroke="#999" stroke-width="0.7"/>
+      <line x1="26" y1="35.5" x2="31" y2="35.5" stroke="#999" stroke-width="0.7"/>
+      <line x1="26.5" y1="32.5" x2="30.5" y2="38.5" stroke="#999" stroke-width="0.5"/>
+      <line x1="30.5" y1="32.5" x2="26.5" y2="38.5" stroke="#999" stroke-width="0.5"/>
+      <circle cx="28.5" cy="35.5" r="1.2" fill="#ccc" stroke="#999" stroke-width="0.4"/>
+
+      <!-- ══ GROS POT D'ÉCHAPPEMENT ══ centré sous le pare-chocs -->
+      <!-- Sortie principale -->
+      <ellipse cx="16" cy="49" rx="4" ry="2.5" fill="#2a2a2a" stroke="#555" stroke-width="1"/>
+      <ellipse cx="16" cy="49" rx="3" ry="1.8" fill="#111"/>
+      <ellipse cx="16" cy="49" rx="1.5" ry="0.9" fill="#0a0a0a"/>
+      <!-- Bride chromée -->
+      <ellipse cx="16" cy="49" rx="4" ry="2.5" fill="none" stroke="#aaa" stroke-width="0.8"/>
+      <!-- Reflet -->
+      <ellipse cx="14.5" cy="48.2" rx="1" ry="0.5" fill="#888" opacity="0.6"/>
+
+      <!-- Logo lion Peugeot simplifié sur capot -->
+      <text x="16" y="10.5" text-anchor="middle" font-size="4" fill="#c8c8c8" opacity="0.8" font-family="serif">🦁</text>
+
+    </svg>
+  </div>`;
+}
+}
+
+function createPosMarker(latlng) {
+  const icon = L.divIcon({
+    html: carSVG(0),
+    iconSize: [28, 44],
+    iconAnchor: [14, 22],
+    className: ''
+  });
+  return L.marker(latlng, { icon });
+}
+
+function updateCarHeading(lat, lng) {
+  // Calcule le heading depuis les 2 derniers points GPS
+  if (GPS_BUFFER.length < 2) return;
+  const prev = GPS_BUFFER[GPS_BUFFER.length - 2];
+  const curr = GPS_BUFFER[GPS_BUFFER.length - 1];
+  const dLat = curr.lat - prev.lat;
+  const dLng = curr.lng - prev.lng;
+  if (Math.abs(dLat) < 0.000001 && Math.abs(dLng) < 0.000001) return;
+  // atan2 donne l'angle par rapport au nord, converti en degrés
+  const heading = Math.atan2(dLng, dLat) * 180 / Math.PI;
+  carHeading = heading;
+  // Mettre à jour la rotation du SVG sans recréer le marker
+  const el = document.getElementById('car-marker');
+  if (el) el.style.transform = `rotate(${heading}deg)`;
+}
+
+function updateMapPosition(lat, lng) {
+  const latlng = [lat, lng];
+  if (!posMarker) {
+    posMarker = createPosMarker(latlng).addTo(map);
+    map.setView(latlng, 17);
+  } else {
+    posMarker.setLatLng(latlng);
+    updateCarHeading(lat, lng);
+  }
+}
+
+function setStartMarker(latlng) {
+  if (startMarker) map.removeLayer(startMarker);
+  if (startCircle) map.removeLayer(startCircle);
+  if (startLinePolyline) map.removeLayer(startLinePolyline);
+  const icon = L.divIcon({ html: `<div class="start-line-label">DÉPART</div>`, iconSize: null, iconAnchor: [30,10], className: '' });
+  startMarker = L.marker(latlng, { icon }).addTo(map);
+  startCircle = L.circle(latlng, {
+    radius: 20, color: '#ff4d1a', fillColor: '#ff4d1a',
+    fillOpacity: 0.12, weight: 2, dashArray: '5 4'
+  }).addTo(map);
+  if (STATE.startLine?.heading !== undefined) drawStartLineVisual(latlng, STATE.startLine.heading);
+}
+
+function drawStartLineVisual(center, heading) {
+  if (startLinePolyline) map.removeLayer(startLinePolyline);
+  const perpHeading = heading + 90;
+  const cosLat = Math.cos(center.lat * Math.PI / 180);
+  const len = 0.000180;
+  const dLat = Math.cos(perpHeading * Math.PI / 180) * len;
+  const dLng = Math.sin(perpHeading * Math.PI / 180) * len / cosLat;
+  startLinePolyline = L.polyline([
+    [center.lat + dLat, center.lng + dLng],
+    [center.lat - dLat, center.lng - dLng]
+  ], { color: '#ff4d1a', weight: 4, opacity: 0.9 }).addTo(map);
+}
+
+// ══════════════════════════════════════
+// GPS SMOOTHING — moyenne glissante 5pts
+// + rejet outliers (sauts > 50m en <1s)
+// ══════════════════════════════════════
+const GPS_BUFFER = [];
+const GPS_BUFFER_SIZE = 5;
+
+function smoothGPS(lat, lng, speedKmh) {
+  const now = Date.now();
+  if (GPS_BUFFER.length > 0) {
+    const last = GPS_BUFFER[GPS_BUFFER.length - 1];
+    const dist = haversineDistance(last.lat, last.lng, lat, lng);
+    const dt = (now - last.t) / 1000;
+    // Rejette si implique une vitesse > 250 km/h ET saut > 30m
+    if (dist / dt > 70 && dist > 30) return null;
+  }
+  GPS_BUFFER.push({ lat, lng, speed: speedKmh, t: now });
+  if (GPS_BUFFER.length > GPS_BUFFER_SIZE) GPS_BUFFER.shift();
+
+  let wLat = 0, wLng = 0, wSpeed = 0, wTotal = 0;
+  GPS_BUFFER.forEach((p, i) => {
+    const w = i + 1;
+    wLat += p.lat * w; wLng += p.lng * w;
+    wSpeed += p.speed * w; wTotal += w;
+  });
+  return { lat: wLat/wTotal, lng: wLng/wTotal, speed: wSpeed/wTotal };
+}
+
+function onGPSUpdate(pos) {
+  const { latitude: lat, longitude: lng, speed, accuracy } = pos.coords;
+  const gpsSpeedKmh = (speed && speed > 0) ? speed * 3.6 : 0;
+
+  const smoothed = smoothGPS(lat, lng, gpsSpeedKmh);
+  if (!smoothed) return;
+
+  STATE.currentPos = {
+    lat: smoothed.lat, lng: smoothed.lng,
+    speed: gpsSpeedKmh < 2 ? 0 : smoothed.speed,
+    accuracy,
+  };
+  STATE.gpsActive = true;
+
+  updateGPSBadge();
+  updateKalmanBadge();
+  document.getElementById('speed-display').textContent = Math.round(STATE.currentPos.speed);
+  updateMapPosition(smoothed.lat, smoothed.lng);
+
+  if (STATE.recording) {
+    STATE.currentPoints.push({
+      lat: smoothed.lat, lng: smoothed.lng,
+      speed: STATE.currentPos.speed, t: Date.now(), g: STATE.gLateral
+    });
+    drawCurrentTrack();
+    checkLineCrossing(smoothed.lat, smoothed.lng);
+  }
+}
+
+function onGPSError(err) {
+  STATE.gpsActive = false;
+  updateGPSBadge();
+}
+
+// ══════════════════════════════════════
+// LINE CROSSING — détection vectorielle
+// ══════════════════════════════════════
+function haversineDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2-lat1)*Math.PI/180, dLng = (lng2-lng1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function checkLineCrossing(lat, lng) {
+  if (!STATE.startLine) return;
+  const dist = haversineDistance(lat, lng, STATE.startLine.lat, STATE.startLine.lng);
+  if (dist > 25) { STATE.crossedLine = false; return; }
+  if (STATE.crossedLine) return;
+
+  if (STATE.startLine.heading !== undefined && STATE.currentPoints.length >= 2) {
+    const prev = STATE.currentPoints[STATE.currentPoints.length - 2];
+    const dLat = lat - prev.lat;
+    const dLng = lng - prev.lng;
+    const headRad = STATE.startLine.heading * Math.PI / 180;
+    const dot = dLat * Math.cos(headRad) + dLng * Math.sin(headRad);
+    if (dot <= 0) return; // mauvais sens
+  }
+
+  STATE.crossedLine = true;
+  // Enregistre le heading au premier passage
+  recordStartLineHeading();
+  triggerLapComplete();
+}
+
+function recordStartLineHeading() {
+  if (!STATE.startLine || STATE.startLine.heading !== undefined) return;
+  if (STATE.currentPoints.length < 3) return;
+  const n = STATE.currentPoints.length;
+  const prev = STATE.currentPoints[n-3];
+  const curr = STATE.currentPoints[n-1];
+  const heading = Math.atan2(curr.lng - prev.lng, curr.lat - prev.lat) * 180 / Math.PI;
+  STATE.startLine.heading = heading;
+  DB.set('lt_startline', STATE.startLine);
+  drawStartLineVisual({ lat: STATE.startLine.lat, lng: STATE.startLine.lng }, heading);
+  showToast('Direction de passage enregistrée ✓');
+}
+// ══════════════════════════════════════
+function requestSensors() {
+  // iOS requires explicit permission for DeviceMotion
+  if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+    DeviceMotionEvent.requestPermission()
+      .then(state => {
+        if (state === 'granted') {
+          STATE.sensorsAuthorized = true;
+          startIMU();
+          document.getElementById('sensor-overlay').classList.add('hidden');
+          startGPS();
+          showToast('Capteurs autorisés ✓');
+        } else {
+          showToast('Capteurs refusés — GPS seul actif');
+          document.getElementById('sensor-overlay').classList.add('hidden');
+          startGPS();
+        }
+      })
+      .catch(() => {
+        document.getElementById('sensor-overlay').classList.add('hidden');
+        startGPS();
+      });
+  } else {
+    // Android / desktop — DeviceMotion available without permission
+    STATE.sensorsAuthorized = true;
+    startIMU();
+    document.getElementById('sensor-overlay').classList.add('hidden');
+    startGPS();
+  }
+}
+
+// ══════════════════════════════════════
+// IMU — ACCÉLÉROMÈTRE
+// ══════════════════════════════════════
+function startIMU() {
+  window.addEventListener('devicemotion', onDeviceMotion);
+}
+
+function onDeviceMotion(event) {
+  const acc = event.accelerationIncludingGravity;
+  if (!acc) return;
+
+  STATE.accelX = acc.x || 0;
+  STATE.accelY = acc.y || 0;
+  STATE.accelZ = acc.z || 0;
+
+  // Lateral G-force (X axis on iPhone held in portrait = lateral)
+  // Subtract gravity component roughly
+  STATE.gLateral = Math.abs(STATE.accelX / 9.81);
+
+  // Noise threshold — ignore tiny accelerations (gravity bias, vibrations)
+  const ACCEL_THRESHOLD = 0.4; // m/s²
+  const rawAccelLat = STATE.accelY;
+  const rawAccelLng = STATE.accelX;
+  const filteredLat = Math.abs(rawAccelLat) > ACCEL_THRESHOLD ? rawAccelLat : 0;
+  const filteredLng = Math.abs(rawAccelLng) > ACCEL_THRESHOLD ? rawAccelLng : 0;
+
+  const accelLat = filteredLat / 111320;
+  const accelLng = filteredLng / (111320 * Math.cos((STATE.currentPos?.lat || 47) * Math.PI / 180));
+
+  if (kalman.active) {
+    kalman.predict(accelLat, accelLng);
+  }
+
+  // Update G display
+  document.getElementById('gforce-display').textContent = STATE.gLateral.toFixed(1);
+
+  // Update IMU badge
+  STATE.imuActive = true;
+  updateIMUBadge();
+}
+
+// ══════════════════════════════════════
+// GPS
+// ══════════════════════════════════════
+function startGPS() {
+  if (!navigator.geolocation) { showToast('GPS non disponible'); return; }
+  STATE.watchId = navigator.geolocation.watchPosition(onGPSUpdate, onGPSError, {
+    enableHighAccuracy: true, maximumAge: 0, timeout: 5000
+  });
+}
+
+function triggerLapComplete() {
+  const now = Date.now();
+  if (STATE.lapStartTime === null) {
+    STATE.lapStartTime = now;
+    STATE.lapNumber = 1;
+    updateLapDisplay();
+    if (STATE.mode === 'multi') {
+      showDriverHUD();
+      showToast(`${currentDriverName()} — Tour 1 démarré !`);
+    } else {
+      showToast('Tour 1 démarré !');
+    }
+    return;
+  }
+  const lapTime = now - STATE.lapStartTime;
+  if (lapTime < 10000) return;
+
+  const lap = { number: STATE.lapNumber, time: lapTime, points: [...STATE.currentPoints] };
+  STATE.laps.push(lap);
+  STATE.currentPoints = [];
+  STATE.lapStartTime = now;
+  STATE.lapNumber++;
+
+  if (STATE.mode === 'multi') {
+    // Save lap to current driver's results
+    const dIdx = STATE.currentDriverIdx;
+    if (!STATE.driverResults[dIdx]) {
+      STATE.driverResults[dIdx] = { ...STATE.drivers[dIdx], laps: [] };
+    }
+    STATE.driverResults[dIdx].laps.push(lap);
+    const dBest = STATE.driverResults[dIdx].laps.reduce((b,l) => l.time < b.time ? l : b);
+    STATE.driverResults[dIdx].bestLap = dBest.time;
+
+    // Show driver switcher for next driver
+    showDriverSwitcher(lap);
+  } else {
+    renderLapChips();
+    showLapDelta(lap.time);
+    updateLapDisplay();
+    showToast(`Tour ${lap.number} : ${formatTime(lap.time)}`);
+  }
+}
+
+// ══════════════════════════════════════
+// CHRONO
+// ══════════════════════════════════════
+function startChrono() {
+  STATE.chronoInterval = setInterval(() => {
+    if (STATE.lapStartTime) {
+      document.getElementById('chrono-display').textContent = formatTime(Date.now() - STATE.lapStartTime);
+    }
+  }, 33);
+}
+
+function stopChrono() { clearInterval(STATE.chronoInterval); }
+
+function formatTime(ms) {
+  const m = Math.floor(ms / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const cs = Math.floor((ms % 1000) / 10);
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(cs).padStart(2,'0')}`;
+}
+
+function showLapDelta(lapTime) {
+  const el = document.getElementById('lap-delta');
+  const best = getBestLap();
+  if (!best || best.time === lapTime) { el.textContent = ''; return; }
+  const delta = lapTime - best.time;
+  el.textContent = (delta > 0 ? '+' : '') + formatTime(Math.abs(delta));
+  el.className = 'lap-delta ' + (delta > 0 ? 'positive' : 'negative');
+  // Only auto-hide on lap 1, keep visible during comparison laps
+  if (STATE.lapNumber <= 2) setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+function getBestLap() {
+  if (!STATE.laps.length) return null;
+  return STATE.laps.reduce((b, l) => l.time < b.time ? l : b);
+}
+
+// ══════════════════════════════════════
+// TRACK DRAWING — PHASE 3
+// ══════════════════════════════════════
+function speedToColor(speed) {
+  const ratio = Math.min(speed / 120, 1);
+  if (ratio < 0.5) return `rgb(255,${Math.round(ratio * 2 * 255)},0)`;
+  return `rgb(${Math.round((1-(ratio-0.5)*2)*255)},255,0)`;
+}
+
+function drawCurrentTrack() {
+  trackLayer.clearLayers();
+  const best = getBestLap();
+  const isComparison = best && STATE.lapNumber > 1 && STATE.currentPoints.length > 2;
+
+  if (isComparison) {
+    // Draw best lap as white ghost reference
+    drawGhostLap(best.points);
+    // Draw current lap with delta coloring
+    drawCurrentWithDelta(STATE.currentPoints, best.points);
+  } else {
+    // Phase 1 style: all laps muted, current bright
+    STATE.laps.forEach(lap => drawLapPoints(lap.points, 0.3, false));
+    drawLapPoints(STATE.currentPoints, 1.0, false);
+  }
+
+  // Update live delta display
+  if (isComparison) updateLiveDelta(STATE.currentPoints, best);
+}
+
+// Ghost lap = best tour en blanc transparent
+function drawGhostLap(points) {
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i-1], b = points[i];
+    L.polyline([[a.lat,a.lng],[b.lat,b.lng]], {
+      color: '#0a0a0a', weight: 2, opacity: 0.4,
+      lineCap: 'butt', dashArray: '5 4'
+    }).addTo(trackLayer);
+  }
+}
+
+// Colorie le tour actuel selon le delta vs meilleur
+function drawCurrentWithDelta(current, reference) {
+  for (let i = 1; i < current.length; i++) {
+    const a = current[i-1], b = current[i];
+    // Find nearest point on reference track
+    const refIdx = nearestPointIndex(b, reference);
+    // Time delta: actual elapsed vs reference elapsed at same track position
+    const actualElapsed = b.t - current[0].t;
+    const refElapsed = reference[refIdx].t - reference[0].t;
+    const delta = actualElapsed - refElapsed; // positive = slower, negative = faster
+    const color = deltaToColor(delta);
+    L.polyline([[a.lat,a.lng],[b.lat,b.lng]], {
+      color, weight: 5, opacity: 1, lineCap: 'round'
+    }).addTo(trackLayer);
+  }
+}
+
+// Standard speed coloring
+function drawLapPoints(points, opacity, useDelta) {
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i-1], b = points[i];
+    L.polyline([[a.lat,a.lng],[b.lat,b.lng]], {
+      color: speedToColor((a.speed+b.speed)/2),
+      weight: 4, opacity, lineCap: 'round'
+    }).addTo(trackLayer);
+  }
+}
+
+// Delta color: vert = plus rapide, rouge = plus lent
+function deltaToColor(deltaMs) {
+  // -2000ms (2s ahead) = full green, +2000ms (2s behind) = full red
+  const ratio = Math.max(-1, Math.min(1, deltaMs / 2000));
+  if (ratio < 0) {
+    // Faster: green intensity
+    const g = Math.round(255);
+    const r = Math.round((1 + ratio) * 255);
+    return `rgb(${r},${g},70)`;
+  } else {
+    // Slower: red intensity
+    const r = Math.round(255);
+    const g = Math.round((1 - ratio) * 180);
+    return `rgb(${r},${g},70)`;
+  }
+}
+
+// Find nearest point index on reference track
+function nearestPointIndex(point, reference) {
+  let minDist = Infinity, minIdx = 0;
+  for (let i = 0; i < reference.length; i++) {
+    const d = haversineDistance(point.lat, point.lng, reference[i].lat, reference[i].lng);
+    if (d < minDist) { minDist = d; minIdx = i; }
+  }
+  return minIdx;
+}
+
+// Live delta HUD update
+function updateLiveDelta(current, bestLap) {
+  if (current.length < 2) return;
+  const lastPoint = current[current.length - 1];
+  const refIdx = nearestPointIndex(lastPoint, bestLap.points);
+  const actualElapsed = lastPoint.t - current[0].t;
+  const refElapsed = bestLap.points[refIdx].t - bestLap.points[0].t;
+  const delta = actualElapsed - refElapsed;
+
+  const el = document.getElementById('lap-delta');
+  el.textContent = (delta > 0 ? '+' : '') + formatTime(Math.abs(delta));
+  el.className = 'lap-delta ' + (delta > 0 ? 'positive' : 'negative');
+  el.style.opacity = '1';
+}
+
+// ══════════════════════════════════════
+// CONTROLS
+// ══════════════════════════════════════
+function toggleRecording() {
+  if (!STATE.gpsActive) { showToast('GPS non actif — attends le signal'); return; }
+
+  if (!STATE.recording) {
+    // Show mode selector — recording starts only after user confirms in startSession()
+    STATE.laps = [];
+    STATE.currentPoints = [];
+    STATE.lapStartTime = null;
+    STATE.lapNumber = 0;
+    STATE.crossedLine = false;
+    STATE.driverResults = [];
+    STATE.currentDriverIdx = 0;
+    trackLayer.clearLayers();
+    document.getElementById('lap-times-mini').innerHTML = '';
+
+    // Populate circuit name suggestions from past sessions
+    const circuits = [...new Set(STATE.sessions.map(s => s.circuit).filter(Boolean))];
+    const datalist = document.getElementById('circuit-suggestions');
+    datalist.innerHTML = circuits.map(c => `<option value="${c}">`).join('');
+    // Pre-fill with last used circuit
+    const input = document.getElementById('circuit-name-input');
+    if (!input.value && STATE.circuitName !== 'Mon Circuit') input.value = STATE.circuitName;
+
+    document.getElementById('mode-overlay').classList.remove('hidden');
+  } else {
+    // STOP
+    STATE.recording = false;
+    stopChrono();
+    updateRecBtn(false);
+    updateGPSBadge();
+    WakeLock.release();
+    document.getElementById('driver-hud').classList.remove('visible');
+    document.getElementById('driver-switcher').classList.add('hidden');
+
+    if (STATE.mode === 'multi') {
+      endMultiSession();
+      showToast('Session multi terminée ✓');
+    } else {
+      saveSession();
+      showToast('Session sauvegardée ✓');
+    }
+    document.getElementById('chrono-display').textContent = '00:00.00';
+    document.getElementById('chrono-lap').textContent = 'EN ATTENTE';
+    document.getElementById('chrono-display').classList.remove('recording');
+  }
+}
+
+function resetHeading() {
+  if (!STATE.startLine) return;
+  delete STATE.startLine.heading;
+  DB.set('lt_startline', STATE.startLine);
+  if (startLinePolyline) { map.removeLayer(startLinePolyline); startLinePolyline = null; }
+  showToast('Direction réinitialisée — repasse sur la ligne');
+}
+  STATE.settingLine = !STATE.settingLine;
+  const btn = document.getElementById('set-line-btn');
+  const lbl = document.getElementById('set-line-label');
+  if (STATE.settingLine) {
+    btn.classList.add('active');
+    lbl.textContent = 'APPUIE SUR LA CARTE';
+    map.once('click', (e) => {
+      STATE.startLine = { lat: e.latlng.lat, lng: e.latlng.lng };
+      setStartMarker([e.latlng.lat, e.latlng.lng]);
+      STATE.settingLine = false;
+      btn.classList.remove('active');
+      lbl.textContent = 'LIGNE DÉPART ✓';
+      DB.set('lt_startline', STATE.startLine);
+      document.getElementById('reset-heading-btn').style.display = 'flex';
+      showToast('Ligne posée — la direction sera apprise au 1er passage');
+    });
+  } else {
+    btn.classList.remove('active');
+    lbl.textContent = 'LIGNE DÉPART';
+    map.off('click');
+  }
+}
+
+function resetSession() {
+  // Allow reset even during recording (stops it first)
+  if (STATE.recording) {
+    STATE.recording = false;
+    stopChrono();
+    updateRecBtn(false);
+    updateGPSBadge();
+    document.getElementById('driver-hud').classList.remove('visible');
+    document.getElementById('driver-switcher').classList.add('hidden');
+  }
+  STATE.laps = []; STATE.currentPoints = [];
+  STATE.lapStartTime = null; STATE.lapNumber = 0;
+  STATE.driverResults = []; STATE.currentDriverIdx = 0;
+  trackLayer.clearLayers();
+  document.getElementById('lap-times-mini').innerHTML = '';
+  document.getElementById('chrono-display').textContent = '00:00.00';
+  document.getElementById('chrono-lap').textContent = 'EN ATTENTE';
+  document.getElementById('lap-delta').textContent = '';
+  document.getElementById('chrono-display').classList.remove('recording');
+  showToast('Session réinitialisée');
+}
+
+function centerMap() {
+  if (STATE.currentPos) {
+    map.setView([STATE.currentPos.fusedLat || STATE.currentPos.lat, STATE.currentPos.fusedLng || STATE.currentPos.lng], 17);
+  } else {
+    showToast('GPS pas encore actif');
+  }
+}
+
+// ══════════════════════════════════════
+// UI
+// ══════════════════════════════════════
+function updateGPSBadge() {
+  const dot = document.getElementById('gps-dot');
+  const status = document.getElementById('gps-status');
+  dot.className = 'dot';
+  if (STATE.recording) { dot.classList.add('recording'); status.textContent = 'REC'; }
+  else if (STATE.gpsActive) { dot.classList.add('active'); status.textContent = 'GPS'; }
+  else { status.textContent = 'GPS'; }
+}
+
+function updateIMUBadge() {
+  const dot = document.getElementById('imu-dot');
+  dot.className = 'dot' + (STATE.imuActive ? ' active' : '');
+  document.getElementById('imu-status').textContent = 'IMU';
+}
+
+function updateKalmanBadge() {
+  const el = document.getElementById('kalman-badge');
+  if (kalman.active && STATE.imuActive) {
+    el.textContent = 'KALMAN ON';
+    el.classList.add('active');
+  } else {
+    el.textContent = 'KALMAN OFF';
+    el.classList.remove('active');
+  }
+}
+
+function updateRecBtn(recording) {
+  const btn = document.getElementById('rec-btn');
+  btn.className = 'btn btn-primary' + (recording ? ' recording' : '');
+  document.getElementById('rec-label').textContent = recording ? 'Arrêter' : 'Démarrer';
+}
+
+function updateLapDisplay() {
+  const el = document.getElementById('chrono-lap');
+  const cd = document.getElementById('chrono-display');
+  if (!STATE.recording) { el.textContent = 'EN ATTENTE'; cd.classList.remove('recording'); return; }
+  if (!STATE.startLine) { el.textContent = '⚠ DÉFINIR LA LIGNE DÉPART'; return; }
+  if (STATE.lapStartTime === null) { el.textContent = '◉ PASSE SUR LA LIGNE'; return; }
+  el.textContent = `TOUR ${STATE.lapNumber}`;
+  cd.classList.add('recording');
+}
+
+function renderLapChips() {
+  const best = getBestLap();
+  document.getElementById('lap-times-mini').innerHTML = STATE.laps.map(l =>
+    `<div class="lap-chip ${best && l.time === best.time ? 'best' : ''}"><span class="lap-num">T${l.number}</span>${formatTime(l.time)}</div>`
+  ).join('');
+}
+
+// ══════════════════════════════════════
+// SESSIONS & LEADERBOARD
+// ══════════════════════════════════════
+function askUsername() {
+  const name = prompt('Ton prénom (pour le leaderboard) :');
+  if (name) { STATE.userName = name.trim() || 'Pilote'; DB.set('lt_username', STATE.userName); }
+}
+
+function saveSession() {
+  if (!STATE.laps.length) return;
+  const best = getBestLap();
+  const session = {
+    id: Date.now(), circuit: STATE.circuitName,
+    user: STATE.userName || 'Pilote',
+    date: new Date().toLocaleDateString('fr-FR'),
+    laps: STATE.laps.map(l => ({ number: l.number, time: l.time, points: l.points })),
+    bestLap: best.time, lapCount: STATE.laps.length,
+    fusionUsed: STATE.imuActive,
+  };
+  STATE.sessions.unshift(session);
+  if (STATE.sessions.length > 50) STATE.sessions.pop();
+  DB.set('lt_sessions', STATE.sessions);
+  renderSessions(); renderLeaderboard(); updateCircuitSelect();
+}
+
+// ══════════════════════════════════════
+// MINI TRACK MAP — SVG depuis points GPS
+// ══════════════════════════════════════
+function buildMiniMap(session) {
+  // Collect all points from all laps
+  const allPoints = (session.laps || []).flatMap(l => l.points || []);
+  if (allPoints.length < 3) return `
+    <div class="session-map-wrap">
+      <div class="session-map-empty">Pas de tracé disponible</div>
+    </div>`;
+
+  // Find bounding box
+  const lats = allPoints.map(p => p.lat);
+  const lngs = allPoints.map(p => p.lng);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const rangeLat = maxLat - minLat || 0.0001;
+  const rangeLng = maxLng - minLng || 0.0001;
+
+  const W = 320, H = 140, PAD = 12;
+  const gW = W - PAD * 2, gH = H - PAD * 2;
+
+  // Normalize: keep aspect ratio, center in box
+  const scaleX = gW / rangeLng;
+  const scaleY = gH / rangeLat;
+  const scale = Math.min(scaleX, scaleY);
+  const offX = PAD + (gW - rangeLng * scale) / 2;
+  const offY = PAD + (gH - rangeLat * scale) / 2;
+
+  function toX(lng) { return offX + (lng - minLng) * scale; }
+  function toY(lat) { return offY + (maxLat - lat) * scale; } // flip Y
+
+  // Speed color (same as main map)
+  function speedColor(speed) {
+    const ratio = Math.min((speed || 0) / 120, 1);
+    if (ratio < 0.5) return `rgb(255,${Math.round(ratio*2*255)},0)`;
+    return `rgb(${Math.round((1-(ratio-0.5)*2)*255)},220,0)`;
+  }
+
+  // Build SVG path segments per lap, colored by speed
+  let segments = '';
+  const bestLap = session.laps.reduce((b, l) => l.time < b.time ? l : b, session.laps[0]);
+
+  session.laps.forEach((lap, li) => {
+    const pts = lap.points || [];
+    const isBest = lap.time === bestLap.time;
+    const opacity = isBest ? 1 : 0.3;
+
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i-1], b = pts[i];
+      const x1 = toX(a.lng).toFixed(1), y1 = toY(a.lat).toFixed(1);
+      const x2 = toX(b.lng).toFixed(1), y2 = toY(b.lat).toFixed(1);
+      const color = isBest ? speedColor((a.speed+b.speed)/2) : '#888';
+      segments += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${isBest?2.5:1}" stroke-linecap="round" opacity="${opacity}"/>`;
+    }
+  });
+
+  // Start line dot
+  const startPt = bestLap.points?.[0];
+  const startDot = startPt
+    ? `<circle cx="${toX(startPt.lng).toFixed(1)}" cy="${toY(startPt.lat).toFixed(1)}" r="5" fill="#ff4d1a" stroke="#0a0a0a" stroke-width="1.5"/>`
+    : '';
+
+  return `
+    <div class="session-map-wrap">
+      <svg class="session-map-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+        <rect width="${W}" height="${H}" fill="#12121a"/>
+        ${segments}
+        ${startDot}
+      </svg>
+    </div>`;
+}
+
+function renderSessions() {
+  const el = document.getElementById('sessions-content');
+  if (!STATE.sessions.length) {
+    el.innerHTML = `<div class="empty-state"><span class="empty-icon">🏁</span><strong>Aucune session</strong>Lance ton premier tour pour la voir ici.</div>`;
+    return;
+  }
+  el.innerHTML = STATE.sessions.map(s => `
+    <div class="session-card">
+      ${buildMiniMap(s)}
+      <div class="session-top">
+        <div class="session-circuit-wrap">
+          <div class="session-circuit">${s.circuit}</div>
+          ${s.fusionUsed ? '<span class="session-tag">KALMAN</span>' : ''}
+        </div>
+        <div class="session-best-wrap">
+          <div class="session-best-label">BEST</div>
+          <div class="session-best">${formatTime(s.bestLap)}</div>
+        </div>
+      </div>
+      <div class="session-bottom">
+        <div class="session-meta">${s.user} · ${s.date} · ${s.lapCount} tour${s.lapCount>1?'s':''}</div>
+      </div>
+      <div class="session-laps">
+        ${s.laps.map(l => `<div class="session-lap-pill ${l.time===s.bestLap?'best':''}">T${l.number} · ${formatTime(l.time)}</div>`).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderLeaderboard() {
+  const circuit = document.getElementById('circuit-select').value;
+  const bests = {};
+  STATE.sessions.forEach(s => {
+    if (circuit !== 'all' && s.circuit !== circuit) return;
+    if (!bests[s.user] || s.bestLap < bests[s.user].time)
+      bests[s.user] = { user: s.user, time: s.bestLap, circuit: s.circuit, date: s.date };
+  });
+  const sorted = Object.values(bests).sort((a,b) => a.time - b.time);
+  const el = document.getElementById('lb-content');
+  if (!sorted.length) {
+    el.innerHTML = `<div class="empty-state"><span class="empty-icon">🏆</span><strong>Aucun temps</strong>Sois le premier au classement.</div>`;
+    return;
+  }
+  const p1 = sorted[0].time;
+  el.innerHTML = sorted.map((e,i) => `
+    <div class="lb-entry ${i===0?'p1':''} ${e.user===STATE.userName?'me':''}">
+      <div class="lb-rank">${i===0?'★':i+1}</div>
+      <div class="lb-info">
+        <div class="lb-name">${e.user}${e.user===STATE.userName?'<span class="you-tag">TOI</span>':''}</div>
+        <div class="lb-meta">${e.circuit} · ${e.date}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="lb-time">${formatTime(e.time)}</div>
+        <div class="lb-delta">${i===0?'POLE':'+'+formatTime(e.time-p1)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function updateCircuitSelect() {
+  const sel = document.getElementById('circuit-select');
+  const circuits = [...new Set(STATE.sessions.map(s => s.circuit))];
+  sel.innerHTML = '<option value="all">Tous les circuits</option>' +
+    circuits.map(c => `<option value="${c}">${c}</option>`).join('');
+}
+
+// ══════════════════════════════════════
+// ANALYSE
+// ══════════════════════════════════════
+function updateAnalyseLapSelect() {
+  const sel = document.getElementById('analyse-lap-select');
+  const current = sel.value;
+  sel.innerHTML = '<option value="-1">— Sélectionne un tour —</option>' +
+    STATE.laps.map((l,i) => {
+      const best = getBestLap();
+      const isBest = best && l.time === best.time;
+      return `<option value="${i}">Tour ${l.number} — ${formatTime(l.time)}${isBest?' ★':''}</option>`;
+    }).join('');
+  if (current !== '-1') sel.value = current;
+}
+
+function renderAnalyse() {
+  const idx = parseInt(document.getElementById('analyse-lap-select').value);
+  const empty = document.getElementById('analyse-empty');
+  const statsEl = document.getElementById('analyse-stats');
+  const sectorsEl = document.getElementById('analyse-sectors');
+  const graphWrap = document.getElementById('analyse-graph-wrap');
+
+  if (idx < 0 || !STATE.laps[idx]) {
+    empty.style.display = 'block';
+    statsEl.innerHTML = '';
+    sectorsEl.innerHTML = '';
+    graphWrap.style.display = 'none';
+    return;
+  }
+
+  empty.style.display = 'none';
+  const lap = STATE.laps[idx];
+  const best = getBestLap();
+  const points = lap.points;
+  if (!points || points.length < 2) return;
+
+  // ── STATS ──
+  const speeds = points.map(p => p.speed || 0);
+  const vMax = Math.round(Math.max(...speeds));
+  const vMoy = Math.round(speeds.reduce((a,b)=>a+b,0)/speeds.length);
+  const lapTime = lap.time;
+  const isBest = best && lapTime === best.time;
+  const delta = isBest ? null : lapTime - best.time;
+
+  // G lateral: stored per point if available
+  const gVals = points.map(p => p.g || 0);
+  const gMax = Math.max(...gVals).toFixed(2);
+
+  statsEl.innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">Temps du tour</div>
+      <div class="stat-val ${isBest?'gold':'accent'}">${formatTime(lapTime)}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Vs meilleur</div>
+      <div class="stat-val ${delta===null?'gold':delta>0?'red':'green'}">${delta===null?'— BEST —':(delta>0?'+':'')+formatTime(Math.abs(delta))}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">V. max <span style="opacity:0.6">km/h</span></div>
+      <div class="stat-val">${vMax}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">V. moy <span style="opacity:0.6">km/h</span></div>
+      <div class="stat-val blue">${vMoy}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">G latéral max</div>
+      <div class="stat-val gold">${gMax}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Points GPS</div>
+      <div class="stat-val">${points.length}</div>
+    </div>
+  `;
+
+  // ── SECTORS (3 equal parts) ──
+  const sectorSize = Math.floor(points.length / 3);
+  const sectors = [
+    points.slice(0, sectorSize),
+    points.slice(sectorSize, sectorSize * 2),
+    points.slice(sectorSize * 2),
+  ];
+
+  let bestSectors = null;
+  if (!isBest && best && best.points && best.points.length > 5) {
+    const bs = Math.floor(best.points.length / 3);
+    bestSectors = [
+      best.points.slice(0, bs),
+      best.points.slice(bs, bs * 2),
+      best.points.slice(bs * 2),
+    ];
+  }
+
+  const sectorColors = ['#5ec5ff','#c4f542','#ff5757'];
+  const sectorNames = ['S1','S2','S3'];
+
+  sectorsEl.innerHTML = '<div class="section-title" style="margin-top:8px">Secteurs</div>' +
+    sectors.map((seg, si) => {
+      if (seg.length < 2) return '';
+      const segTime = seg[seg.length-1].t - seg[0].t;
+      let deltaHtml = '<div class="sector-delta" style="color:var(--muted)">—</div>';
+      if (bestSectors && bestSectors[si] && bestSectors[si].length > 1) {
+        const bestSegTime = bestSectors[si][bestSectors[si].length-1].t - bestSectors[si][0].t;
+        const d = segTime - bestSegTime;
+        const cls = d > 0 ? 'pos' : 'neg';
+        deltaHtml = `<div class="sector-delta ${cls}">${d>0?'+':''}${formatTime(Math.abs(d))}</div>`;
+      }
+      const vMaxSeg = Math.round(Math.max(...seg.map(p=>p.speed||0)));
+      const barPct = Math.round((segTime / lapTime) * 100);
+      return `
+        <div class="sector-row" style="margin-top:6px">
+          <div class="sector-label" style="color:${sectorColors[si]};border-color:${sectorColors[si]}40">${sectorNames[si]}</div>
+          <div style="flex:1">
+            <div class="sector-bar-wrap">
+              <div class="sector-bar" style="width:${barPct}%;background:${sectorColors[si]}"></div>
+            </div>
+            <div class="sector-info-mini">Vmax ${vMaxSeg} km/h</div>
+          </div>
+          <div class="sector-time">${formatTime(segTime)}</div>
+          ${deltaHtml}
+        </div>`;
+    }).join('');
+
+  // ── SPEED GRAPH ──
+  graphWrap.style.display = 'block';
+  drawSpeedGraph(points, best && !isBest ? best.points : null);
+}
+
+function drawSpeedGraph(points, refPoints) {
+  const canvas = document.getElementById('speed-graph');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth || 340;
+  const H = 160;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const PAD = { top: 12, bottom: 24, left: 30, right: 12 };
+  const gW = W - PAD.left - PAD.right;
+  const gH = H - PAD.top - PAD.bottom;
+
+  ctx.clearRect(0, 0, W, H);
+
+  const allSpeeds = points.map(p => p.speed || 0);
+  const maxV = Math.max(...allSpeeds, 10);
+
+  function toX(i, total) { return PAD.left + (i / (total-1)) * gW; }
+  function toY(v) { return PAD.top + gH - (v / maxV) * gH; }
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(10,10,10,0.08)';
+  ctx.lineWidth = 1;
+  [0, 0.25, 0.5, 0.75, 1].forEach(r => {
+    const y = PAD.top + gH * (1 - r);
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + gW, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = `${9 * dpr / dpr}px monospace`;
+    ctx.fillText(Math.round(maxV * r), 0, y + 3);
+  });
+
+  // Reference lap (ghost) in white
+  if (refPoints && refPoints.length > 1) {
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(10,10,10,0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    refPoints.forEach((p, i) => {
+      const x = toX(i, refPoints.length);
+      const y = toY(p.speed || 0);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Current lap — gradient fill
+  const grad = ctx.createLinearGradient(PAD.left, PAD.top, PAD.left, PAD.top + gH);
+  grad.addColorStop(0, 'rgba(196,245,66,0.3)');
+  grad.addColorStop(1, 'rgba(196,245,66,0)');
+
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const x = toX(i, points.length);
+    const y = toY(p.speed || 0);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  // Close fill
+  ctx.lineTo(toX(points.length-1, points.length), PAD.top + gH);
+  ctx.lineTo(PAD.left, PAD.top + gH);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line on top
+  ctx.beginPath();
+  ctx.strokeStyle = '#ff4d1a';
+  ctx.lineWidth = 2.5;
+  points.forEach((p, i) => {
+    const x = toX(i, points.length);
+    const y = toY(p.speed || 0);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Sector dividers
+  ['S1','S2','S3'].forEach((s, si) => {
+    const x = PAD.left + ((si+1)/3) * gW;
+    ctx.strokeStyle = 'rgba(10,10,10,0.2)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top+gH); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillText(s, x - 6, PAD.top + gH + 14);
+  });
+}
+
+// ══════════════════════════════════════
+// MODE SELECTOR
+// ══════════════════════════════════════
+function selectMode(mode) {
+  STATE.mode = mode;
+  document.getElementById('mode-solo-card').classList.toggle('selected', mode === 'solo');
+  document.getElementById('mode-multi-card').classList.toggle('selected', mode === 'multi');
+  document.getElementById('drivers-section').classList.toggle('hidden', mode === 'solo');
+  if (mode === 'multi' && document.getElementById('drivers-list').children.length === 0) {
+    addDriverRow();
+    addDriverRow();
+  }
+}
+
+function addDriverRow() {
+  const list = document.getElementById('drivers-list');
+  const idx = list.children.length;
+  const row = document.createElement('div');
+  row.className = 'driver-row';
+  row.innerHTML = `
+    <input class="driver-input" placeholder="Prénom" maxlength="16" value="">
+    <input class="driver-vehicle" placeholder="Véhicule" maxlength="14" value="">
+    <button class="driver-remove" onclick="this.parentElement.remove()">✕</button>
+  `;
+  list.appendChild(row);
+}
+
+function getDriversFromForm() {
+  const rows = document.querySelectorAll('#drivers-list .driver-row');
+  const drivers = [];
+  rows.forEach(row => {
+    const name = row.querySelector('.driver-input').value.trim();
+    const vehicle = row.querySelector('.driver-vehicle').value.trim();
+    if (name) drivers.push({ name: name || 'Pilote', vehicle: vehicle || '—' });
+  });
+  return drivers;
+}
+
+function startSession() {
+  // Circuit name
+  const circuitInput = document.getElementById('circuit-name-input').value.trim();
+  STATE.circuitName = circuitInput || 'Mon Circuit';
+  // Update map badge
+  document.getElementById('circuit-badge').textContent = STATE.circuitName.toUpperCase();
+
+  if (STATE.mode === 'multi') {
+    const drivers = getDriversFromForm();
+    if (drivers.length === 0) { showToast('Ajoute au moins un pilote !'); return; }
+    STATE.drivers = drivers;
+    STATE.driverResults = [];
+    STATE.currentDriverIdx = 0;
+  } else {
+    if (!STATE.userName) {
+      const n = prompt('Ton prénom :');
+      STATE.userName = (n || 'Pilote').trim();
+      DB.set('lt_username', STATE.userName);
+    }
+  }
+
+  document.getElementById('mode-overlay').classList.add('hidden');
+
+  STATE.recording = true;
+  WakeLock.request(); // 🔆 Empêche l'écran de s'éteindre
+  startChrono();
+  updateRecBtn(true);
+  updateGPSBadge();
+  updateLapDisplay();
+
+  if (STATE.mode === 'multi') {
+    showDriverHUD();
+    showToast(`Session multi — ${STATE.drivers.length} pilotes`);
+  } else {
+    showToast(!STATE.startLine ? 'Pose la ligne départ d\'abord !' : 'Enregistrement démarré');
+  }
+}
+
+// ── MULTI HELPERS ──
+function currentDriverName() {
+  if (!STATE.drivers.length) return STATE.userName || 'Pilote';
+  return STATE.drivers[STATE.currentDriverIdx]?.name || 'Pilote';
+}
+
+function showDriverHUD() {
+  if (STATE.mode !== 'multi') return;
+  const hud = document.getElementById('driver-hud');
+  const d = STATE.drivers[STATE.currentDriverIdx];
+  hud.textContent = `${d.name} · ${d.vehicle}`;
+  hud.classList.add('visible');
+}
+
+function showDriverSwitcher(lastLap) {
+  stopChrono();
+  STATE.recording = false;
+  document.getElementById('chrono-display').classList.remove('recording');
+
+  // Next driver
+  const nextIdx = (STATE.currentDriverIdx + 1) % STATE.drivers.length;
+  const next = STATE.drivers[nextIdx];
+  const prev = STATE.drivers[STATE.currentDriverIdx];
+
+  document.getElementById('switcher-name').textContent = next.name;
+  document.getElementById('switcher-vehicle').textContent = next.vehicle;
+  document.getElementById('switcher-prev').textContent =
+    `${prev.name} vient de faire ${formatTime(lastLap.time)}`;
+
+  document.getElementById('driver-switcher').classList.remove('hidden');
+  document.getElementById('driver-hud').classList.remove('visible');
+
+  STATE.currentDriverIdx = nextIdx;
+
+  // Show intermediate leaderboard in switcher
+  renderMultiLeaderboard();
+}
+
+function confirmDriverSwitch() {
+  document.getElementById('driver-switcher').classList.add('hidden');
+
+  // Reset for next driver's lap
+  STATE.recording = true;
+  STATE.lapStartTime = null;
+  STATE.crossedLine = false;
+  STATE.currentPoints = [];
+  trackLayer.clearLayers();
+
+  startChrono();
+  updateRecBtn(true);
+  updateGPSBadge();
+  updateLapDisplay();
+  showDriverHUD();
+  showToast(`${currentDriverName()} — passe sur la ligne !`);
+}
+
+function renderMultiLeaderboard() {
+  // Inject a mini leaderboard inside the switcher
+  const existing = document.getElementById('multi-lb-embed');
+  if (existing) existing.remove();
+
+  const sorted = [...STATE.driverResults]
+    .filter(d => d && d.bestLap)
+    .sort((a,b) => a.bestLap - b.bestLap);
+
+  if (!sorted.length) return;
+
+  const p1 = sorted[0].bestLap;
+  const div = document.createElement('div');
+  div.id = 'multi-lb-embed';
+  div.className = 'multi-lb';
+  div.innerHTML = sorted.map((d,i) => `
+    <div class="multi-lb-row ${i===0?'p1':''}">
+      <div class="multi-lb-rank">${i+1}</div>
+      <div class="multi-lb-info">
+        <div class="multi-lb-name">${d.name}</div>
+        <div class="multi-lb-vehicle">${d.vehicle}</div>
+      </div>
+      <div>
+        <div class="multi-lb-time">${formatTime(d.bestLap)}</div>
+        <div class="multi-lb-delta">${i===0?'POLE':'+'+formatTime(d.bestLap-p1)}</div>
+      </div>
+    </div>
+  `).join('');
+
+  document.getElementById('driver-switcher').appendChild(div);
+}
+
+function endMultiSession() {
+  // Show final leaderboard, save to sessions
+  STATE.driverResults.forEach(d => {
+    if (!d || !d.laps || !d.laps.length) return;
+    const best = d.laps.reduce((b,l) => l.time < b.time ? l : b);
+    STATE.sessions.unshift({
+      id: Date.now() + Math.random(),
+      circuit: STATE.circuitName,
+      user: d.name,
+      vehicle: d.vehicle,
+      date: new Date().toLocaleDateString('fr-FR'),
+      laps: d.laps,
+      bestLap: best.time,
+      lapCount: d.laps.length,
+      fusionUsed: STATE.imuActive,
+    });
+  });
+  DB.set('lt_sessions', STATE.sessions);
+  renderSessions(); renderLeaderboard(); updateCircuitSelect();
+}
+
+// ══════════════════════════════════════
+// PERF MODE — 0-100 / 100-200 / Courbe
+// ══════════════════════════════════════
+const PERF = {
+  mode: '0-100',
+  launchMode: 'auto',   // 'auto' | 'manual'
+  state: 'idle',        // 'idle' | 'armed' | 'countdown' | 'running' | 'done'
+  startTime: null,
+  prevSpeed: 0,
+  prevSpeedTime: 0,
+  records: [],
+  graphPoints: [],
+  perfInterval: null,
+};
+
+const PERF_MODES = {
+  '0-100':   { label: '0 → 100 KM/H',   from: 0,   to: 100,  armed: 'Lâche les freins pour démarrer' },
+  '100-200': { label: '100 → 200 KM/H',  from: 100, to: 200,  armed: 'Roule à 100 km/h et accélère' },
+  'curve':   { label: 'COURBE D\'ACCÉLÉRATION', from: 0, to: 200, armed: 'Lâche les freins pour démarrer' },
+};
+
+function setPerfMode(mode) {
+  PERF.mode = mode;
+  perfReset();
+  // Update buttons
+  document.querySelectorAll('.perf-mode-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`pbtn-${mode.replace('-','')}`).classList.add('active');
+  const cfg = PERF_MODES[mode];
+  document.getElementById('perf-label').textContent = cfg.label;
+  renderPerfRecords();
+}
+
+function setLaunchMode(mode) {
+  PERF.launchMode = mode;
+  document.getElementById('lbtn-auto').classList.toggle('active', mode === 'auto');
+  document.getElementById('lbtn-manual').classList.toggle('active', mode === 'manual');
+  perfReset();
+}
+
+function perfManualLaunch() {
+  if (PERF.state !== 'armed') return;
+  PERF.startTime = Date.now();
+  PERF.state = 'running';
+  PERF.graphPoints = [{ t: 0, speed: STATE.currentPos?.speed || 0 }];
+  document.getElementById('perf-time').classList.add('running');
+  document.getElementById('perf-go-btn').style.display = 'none';
+  document.getElementById('perf-arm-btn').style.display = 'flex';
+  setPerfSub('EN COURS...', 'go');
+}
+
+function perfArm() {
+  if (PERF.state === 'running') return;
+  if (PERF.state === 'armed') { perfReset(); return; }
+
+  PERF.state = 'armed';
+  PERF.graphPoints = [];
+  PERF.prevSpeed = STATE.currentPos?.speed || 0;
+  PERF.prevSpeedTime = Date.now();
+
+  document.getElementById('perf-arm-label').textContent = 'ANNULER';
+  document.getElementById('perf-arm-btn').classList.add('recording');
+
+  const cfg = PERF_MODES[PERF.mode];
+
+  if (PERF.launchMode === 'manual') {
+    document.getElementById('perf-go-btn').style.display = 'flex';
+    document.getElementById('perf-arm-btn').style.display = 'none';
+    setPerfSub('APPUIE SUR GO AU DÉPART', 'armed');
+  } else {
+    setPerfSub(cfg.armed, 'armed');
+  }
+
+  PERF.perfInterval = setInterval(perfTick, 33);
+  WakeLock.request(); // empêche l'écran de s'éteindre pendant le run
+}
+
+function perfTick() {
+  const speed = STATE.currentPos?.speed || 0;
+  const now = Date.now();
+  document.getElementById('perf-speed-val').textContent = Math.round(speed);
+
+  if (PERF.state === 'armed' && PERF.launchMode === 'auto') {
+    if (PERF.mode === '0-100' || PERF.mode === 'curve') {
+      // IMU-based launch: longitudinal accel > 0.3G (more sensitive than before)
+      // Use accelY (forward axis on iPhone) — gravity-corrected via Kalman
+      const longAccel = Math.abs(STATE.accelY || 0);
+      const launched = longAccel > 3 || speed > 4;
+      if (launched) {
+        // Back-calculate start time using IMU: when did accel actually start?
+        // Simple: use current time minus half GPS interval as correction
+        PERF.startTime = now - 50; // ~50ms correction for detection lag
+        PERF.state = 'running';
+        PERF.graphPoints = [{ t: 0, speed }];
+        document.getElementById('perf-time').classList.add('running');
+        setPerfSub('EN COURS...', 'go');
+      }
+    } else if (PERF.mode === '100-200') {
+      if (speed >= 99) {
+        // Interpolate exact moment we hit 100 km/h between prev and current GPS point
+        const dt = now - PERF.prevSpeedTime;
+        const dv = speed - PERF.prevSpeed;
+        const frac = dv > 0 ? (100 - PERF.prevSpeed) / dv : 0;
+        PERF.startTime = PERF.prevSpeedTime + dt * frac;
+        PERF.state = 'running';
+        PERF.graphPoints = [{ t: 0, speed: 100 }];
+        document.getElementById('perf-time').classList.add('running');
+        setPerfSub('EN COURS...', 'go');
+      }
+    }
+    // Track previous speed for interpolation
+    PERF.prevSpeed = speed;
+    PERF.prevSpeedTime = now;
+    return;
+  }
+
+  if (PERF.state === 'running') {
+    const elapsed = now - PERF.startTime;
+    PERF.graphPoints.push({ t: elapsed, speed });
+    PERF.prevSpeed = speed;
+    PERF.prevSpeedTime = now;
+
+    document.getElementById('perf-time').textContent = formatTime(elapsed);
+    drawPerfGraph();
+
+    const target = PERF_MODES[PERF.mode].to;
+
+    if (PERF.mode !== 'curve' && speed >= target - 1) {
+      // Interpolate exact finish time between previous and current GPS point
+      // to avoid GPS 1Hz latency error
+      const prevSpeed = PERF.prevSpeed;
+      const dt = now - PERF.prevSpeedTime;
+      const dv = speed - prevSpeed;
+      let interpolatedElapsed = elapsed;
+      if (dv > 0) {
+        const frac = (target - prevSpeed) / dv;
+        interpolatedElapsed = (PERF.prevSpeedTime + dt * frac) - PERF.startTime;
+        interpolatedElapsed = Math.max(0, interpolatedElapsed);
+      }
+      perfFinish(interpolatedElapsed);
+      return;
+    }
+    if (PERF.mode === 'curve' && (speed >= 200 || elapsed > 30000)) {
+      perfFinish(elapsed);
+    }
+  }
+}
+
+function perfFinish(elapsed) {
+  PERF.state = 'done';
+  PERF.endTime = Date.now();
+  clearInterval(PERF.perfInterval);
+  WakeLock.release();
+
+  document.getElementById('perf-time').classList.remove('running');
+  document.getElementById('perf-time').classList.add('done');
+  document.getElementById('perf-arm-label').textContent = 'ARMER';
+  document.getElementById('perf-arm-btn').classList.remove('recording');
+
+  if (PERF.mode !== 'curve') {
+    document.getElementById('perf-time').textContent = formatTime(elapsed);
+    setPerfSub('TERMINÉ', '');
+
+    // Save record
+    const record = { mode: PERF.mode, time: elapsed, date: new Date().toLocaleDateString('fr-FR') };
+    PERF.records.unshift(record);
+    if (PERF.records.length > 20) PERF.records.pop();
+    DB.set('lt_perf_records', PERF.records);
+
+    // Check if personal best
+    const bests = PERF.records.filter(r => r.mode === PERF.mode);
+    const best = bests.reduce((b, r) => r.time < b.time ? r : b, bests[0]);
+    if (best.time === elapsed) {
+      document.getElementById('perf-best').textContent = '★ NOUVEAU RECORD PERSO';
+      showToast('Record personnel ! ' + formatTime(elapsed));
+    } else {
+      document.getElementById('perf-best').textContent = 'Meilleur : ' + formatTime(best.time);
+    }
+    renderPerfRecords();
+  } else {
+    setPerfSub('Courbe complète', '');
+  }
+
+  drawPerfGraph();
+}
+
+function perfReset() {
+  clearInterval(PERF.perfInterval);
+  PERF.state = 'idle';
+  PERF.startTime = null;
+  PERF.graphPoints = [];
+  PERF.prevSpeed = 0;
+  PERF.prevSpeedTime = 0;
+
+  document.getElementById('perf-time').textContent = '–:––.–––';
+  document.getElementById('perf-time').className = 'perf-time';
+  document.getElementById('perf-arm-label').textContent = 'ARMER';
+  document.getElementById('perf-arm-btn').classList.remove('recording');
+  document.getElementById('perf-arm-btn').style.display = 'flex';
+  document.getElementById('perf-go-btn').style.display = 'none';
+  document.getElementById('perf-best').textContent = '';
+  setPerfSub('EN ATTENTE DE DÉPART', '');
+  clearPerfGraph();
+}
+
+function setPerfSub(text, cls) {
+  const el = document.getElementById('perf-sub');
+  el.textContent = text;
+  el.className = 'perf-sub' + (cls ? ' ' + cls : '');
+}
+
+function renderPerfRecords() {
+  const el = document.getElementById('perf-records');
+  const runs = PERF.records.filter(r => r.mode === PERF.mode);
+  if (!runs.length) { el.innerHTML = '<span style="font-family:var(--mono);font-size:11px;color:var(--ink-mute)">Aucun run enregistré</span>'; return; }
+  const best = runs.reduce((b, r) => r.time < b.time ? r : b);
+  el.innerHTML = runs.slice(0, 8).map((r, i) => `
+    <div class="perf-record-chip ${r.time === best.time ? 'best' : ''}">
+      #${i+1} ${formatTime(r.time)} · ${r.date}
+    </div>
+  `).join('');
+}
+
+// ── PERF GRAPH ──
+function clearPerfGraph() {
+  const canvas = document.getElementById('perf-graph');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.offsetWidth * dpr;
+  canvas.height = canvas.offsetHeight * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, canvas.offsetWidth, canvas.offsetHeight);
+  // Draw empty grid
+  drawPerfGrid(ctx, canvas.offsetWidth, canvas.offsetHeight);
+}
+
+function drawPerfGrid(ctx, W, H) {
+  const PAD = { top: 10, bottom: 24, left: 34, right: 10 };
+  ctx.strokeStyle = 'rgba(10,10,10,0.08)';
+  ctx.lineWidth = 1;
+  // Horizontal lines (speed)
+  [0, 50, 100, 150, 200].forEach(v => {
+    const y = PAD.top + (H - PAD.top - PAD.bottom) * (1 - v / 200);
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(10,10,10,0.4)';
+    ctx.font = `bold 9px monospace`;
+    ctx.fillText(v, 0, y + 3);
+  });
+}
+
+function drawPerfGraph() {
+  const canvas = document.getElementById('perf-graph');
+  if (!canvas.offsetWidth) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth, H = canvas.offsetHeight;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const PAD = { top: 10, bottom: 24, left: 34, right: 10 };
+  const gW = W - PAD.left - PAD.right;
+  const gH = H - PAD.top - PAD.bottom;
+
+  drawPerfGrid(ctx, W, H);
+
+  const pts = PERF.graphPoints;
+  if (pts.length < 2) return;
+
+  const maxT = Math.max(pts[pts.length-1].t, 5000);
+  const maxV = 220;
+
+  function tx(t) { return PAD.left + (t / maxT) * gW; }
+  function ty(v) { return PAD.top + gH * (1 - Math.min(v, maxV) / maxV); }
+
+  // Acceleration rate at each point (slope = dV/dt in km/h per second)
+  // Color by acceleration: low = blue, high = orange/red
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i-1], b = pts[i];
+    const dt = (b.t - a.t) / 1000 || 0.001;
+    const accel = (b.speed - a.speed) / dt; // km/h per second
+    // 0 accel = blue, 30+ km/h/s = orange/red
+    const ratio = Math.min(Math.max(accel, 0) / 30, 1);
+    const r = Math.round(ratio * 255);
+    const g = Math.round((1 - ratio) * 120 + 30);
+    ctx.strokeStyle = `rgb(${r},${g},30)`;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(tx(a.t), ty(a.speed));
+    ctx.lineTo(tx(b.t), ty(b.speed));
+    ctx.stroke();
+  }
+
+  // Find peak acceleration point
+  let peakAccel = 0, peakIdx = 1;
+  for (let i = 1; i < pts.length; i++) {
+    const dt = (pts[i].t - pts[i-1].t) / 1000 || 0.001;
+    const accel = (pts[i].speed - pts[i-1].speed) / dt;
+    if (accel > peakAccel) { peakAccel = accel; peakIdx = i; }
+  }
+
+  if (peakAccel > 2) {
+    const pp = pts[peakIdx];
+    const px = tx(pp.t), py = ty(pp.speed);
+    // Dot
+    ctx.beginPath();
+    ctx.arc(px, py, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff4d1a';
+    ctx.fill();
+    ctx.strokeStyle = '#0a0a0a';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // Label
+    ctx.fillStyle = '#0a0a0a';
+    ctx.font = 'bold 10px monospace';
+    const label = `MAX ACCEL: ${Math.round(pp.speed)} km/h (${peakAccel.toFixed(1)} km/h/s)`;
+    ctx.fillText(label, Math.min(px + 8, W - 180), py - 6);
+  }
+
+  // Time axis labels
+  ctx.fillStyle = 'rgba(10,10,10,0.4)';
+  ctx.font = 'bold 9px monospace';
+  const steps = Math.min(5, Math.floor(maxT / 1000));
+  for (let i = 0; i <= steps; i++) {
+    const t = (maxT / steps) * i;
+    const x = tx(t);
+    ctx.fillText((t/1000).toFixed(1) + 's', x - 10, H - 4);
+  }
+}
+
+// ══════════════════════════════════════
+// TABS
+// ══════════════════════════════════════
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['track','leaderboard','sessions','analyse','perf'][i]===tab));
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-'+tab).classList.add('active');
+  if (tab==='track') setTimeout(()=>map.invalidateSize(),100);
+  if (tab==='analyse') { updateAnalyseLapSelect(); renderAnalyse(); }
+  if (tab==='perf') { clearPerfGraph(); renderPerfRecords(); }
+}
+
+// ══════════════════════════════════════
+// TOAST
+// ══════════════════════════════════════
+let toastTimer;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>el.classList.remove('show'), 2500);
+}
+
+// ══════════════════════════════════════
+// INIT
+// ══════════════════════════════════════
+async function init() {
+  // Load all persisted data from IndexedDB
+  const [sessions, username, startline, perfRecords] = await Promise.all([
+    DB.get('lt_sessions'),
+    DB.get('lt_username'),
+    DB.get('lt_startline'),
+    DB.get('lt_perf_records'),
+  ]);
+
+  if (sessions) STATE.sessions = sessions;
+  if (username) STATE.userName = username;
+  if (perfRecords) PERF.records = perfRecords;
+  if (startline) {
+    STATE.startLine = startline;
+    setStartMarker([startline.lat, startline.lng]);
+    document.getElementById('set-line-label').textContent = 'LIGNE DÉPART ✓';
+  }
+
+  // Mode overlay hidden on load
+  document.getElementById('mode-overlay').classList.add('hidden');
+
+  renderSessions();
+  renderLeaderboard();
+  updateCircuitSelect();
+
+  // Auto-start GPS + sensors
+  setTimeout(() => requestSensors(), 800);
+}
+
+init();
+</script>
+</body>
+</html>
