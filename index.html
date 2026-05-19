@@ -2126,41 +2126,33 @@ function resetHeading() {
 }
 
 function toggleSetLine() {
-  if (STATE.currentPos) {
-    // GPS actif — pose la ligne à la position actuelle
-    const { lat, lng } = STATE.currentPos;
-    STATE.startLine = { lat, lng };
-    setStartMarker([lat, lng]);
-    DB.set('lt_startline', STATE.startLine);
-    document.getElementById('set-line-label').textContent = 'LIGNE DÉPART ✓';
-    document.getElementById('reset-heading-btn').style.display = 'flex';
-    showToast('Ligne posée à ta position GPS !');
+  const btn = document.getElementById('set-line-btn');
+  const lbl = document.getElementById('set-line-label');
+
+  if (!STATE.settingLine) {
+    // Activer le mode placement
+    STATE.settingLine = true;
+    btn.classList.add('active');
+    lbl.textContent = 'TAPE SUR LA CARTE ↓';
+    showToast('Tape sur la carte pour poser la ligne');
+    setTimeout(() => {
+      map.once('click', (e) => {
+        STATE.startLine = { lat: e.latlng.lat, lng: e.latlng.lng };
+        setStartMarker([e.latlng.lat, e.latlng.lng]);
+        STATE.settingLine = false;
+        btn.classList.remove('active');
+        lbl.textContent = 'LIGNE DÉPART ✓';
+        DB.set('lt_startline', STATE.startLine);
+        document.getElementById('reset-heading-btn').style.display = 'flex';
+        showToast('Ligne de départ posée ✓');
+      });
+    }, 400);
   } else {
-    // Pas de GPS — mode tap sur la carte
-    STATE.settingLine = !STATE.settingLine;
-    const btn = document.getElementById('set-line-btn');
-    const lbl = document.getElementById('set-line-label');
-    if (STATE.settingLine) {
-      btn.classList.add('active');
-      lbl.textContent = 'APPUIE SUR LA CARTE';
-      showToast('GPS inactif — tape sur la carte pour placer la ligne');
-      setTimeout(() => {
-        map.once('click', (e) => {
-          STATE.startLine = { lat: e.latlng.lat, lng: e.latlng.lng };
-          setStartMarker([e.latlng.lat, e.latlng.lng]);
-          STATE.settingLine = false;
-          btn.classList.remove('active');
-          lbl.textContent = 'LIGNE DÉPART ✓';
-          DB.set('lt_startline', STATE.startLine);
-          document.getElementById('reset-heading-btn').style.display = 'flex';
-          showToast('Ligne posée sur la carte');
-        });
-      }, 300);
-    } else {
-      btn.classList.remove('active');
-      lbl.textContent = STATE.startLine ? 'LIGNE DÉPART ✓' : 'Ligne départ';
-      map.off('click');
-    }
+    // Annuler
+    STATE.settingLine = false;
+    btn.classList.remove('active');
+    lbl.textContent = STATE.startLine ? 'LIGNE DÉPART ✓' : 'Ligne départ';
+    map.off('click');
   }
 }
 
