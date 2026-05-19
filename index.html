@@ -816,6 +816,92 @@
   .multi-lb-vehicle { font-family: var(--mono); font-size: 11px; color: var(--ink-mute); }
   .multi-lb-time { font-family: var(--mono); font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; }
   .multi-lb-delta { font-family: var(--mono); font-size: 11px; color: var(--ink-mute); }
+
+  /* ── PROFIL ── */
+  #view-profil { display:none; flex-direction:column; overflow:hidden; }
+  #view-profil.active { display:flex; }
+  .profil-card {
+    background: var(--paper); border: 2px solid var(--ink);
+    padding: 14px; display: flex; gap: 12px; align-items: flex-start;
+  }
+  .profil-avatar {
+    width: 52px; height: 52px; background: var(--accent);
+    border: 2.5px solid var(--ink); display: grid; place-items: center;
+    font-family: var(--display); font-weight: 900; font-size: 24px;
+    flex-shrink: 0; text-transform: uppercase;
+  }
+  .profil-stat-card {
+    background: var(--paper); border: 2px solid var(--ink); padding: 12px;
+    text-align: center;
+  }
+  .profil-stat-val {
+    font-family: var(--mono); font-size: 22px; font-weight: 800;
+    color: var(--ink); line-height: 1; font-variant-numeric: tabular-nums;
+  }
+  .profil-stat-label {
+    font-family: var(--mono); font-size: 9px; color: var(--ink-mute);
+    letter-spacing: 1px; text-transform: uppercase; margin-top: 4px;
+  }
+  .circuit-saved-card {
+    background: var(--paper); border: 2px solid var(--ink); padding: 12px 14px;
+    display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .circuit-saved-card:active { background: var(--accent); }
+  .circuit-saved-name { font-family: var(--display); font-weight: 800; font-size: 15px; flex: 1; text-transform: uppercase; }
+  .circuit-saved-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-mute); }
+  .circuit-use-btn {
+    background: var(--ink); color: var(--paper); border: none;
+    padding: 6px 12px; font-family: var(--mono); font-size: 11px;
+    font-weight: 700; cursor: pointer; letter-spacing: 0.5px;
+  }
+
+  /* Toggle switch */
+  .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: #ccc; border: 2px solid var(--ink); transition: .2s;
+  }
+  .toggle-slider:before {
+    content: ""; position: absolute; height: 14px; width: 14px;
+    left: 3px; bottom: 3px; background: var(--ink); transition: .2s;
+  }
+  input:checked + .toggle-slider { background: var(--accent); }
+  input:checked + .toggle-slider:before { transform: translateX(20px); }
+
+  /* Weather card */
+  .weather-wrap { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .weather-temp { font-family: var(--mono); font-size: 32px; font-weight: 800; line-height: 1; }
+  .weather-desc { font-family: var(--mono); font-size: 11px; color: var(--ink-mute); margin-top: 4px; }
+  .weather-detail { font-family: var(--mono); font-size: 10px; color: var(--ink-mute); }
+
+  /* ── COUNTDOWN ── */
+  .countdown-overlay {
+    position: fixed; inset: 0; z-index: 3000;
+    background: var(--ink);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px;
+  }
+  .countdown-overlay.hidden { display: none; }
+  .countdown-num {
+    font-family: var(--display); font-weight: 900; font-size: 140px;
+    color: var(--paper); line-height: 1; letter-spacing: -8px;
+    animation: countdown-pop 0.5s ease;
+  }
+  .countdown-num.go { color: var(--accent); font-size: 100px; letter-spacing: -4px; }
+  @keyframes countdown-pop {
+    0% { transform: scale(1.4); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .countdown-sub {
+    font-family: var(--mono); font-size: 14px; letter-spacing: 3px;
+    color: rgba(255,255,255,0.5); text-transform: uppercase;
+  }
+
+  /* ── PERF extras (60-130, freinage) ── */
+  #pbtn-6130 { font-size: 11px; }
+  #pbtn-brake { font-size: 11px; }
 </style>
 </head>
 <body>
@@ -823,7 +909,7 @@
 <header>
   <div class="logo">LapTrack <span>· timing</span></div>
   <div class="status-row">
-    <div class="badge">
+    <div class="badge" onclick="retryGPS()" style="cursor:pointer;" title="Tap pour relancer le GPS">
       <div class="dot" id="gps-dot"></div>
       <span id="gps-status">GPS</span>
     </div>
@@ -840,6 +926,7 @@
   <div class="tab" onclick="switchTab('sessions')">SESSIONS</div>
   <div class="tab" onclick="switchTab('analyse')">ANALYSE</div>
   <div class="tab" onclick="switchTab('perf')">PERF</div>
+  <div class="tab" onclick="switchTab('profil')">PROFIL</div>
 </div>
 
 <!-- TRACK VIEW -->
@@ -925,8 +1012,8 @@
       <span class="icon">⊕</span> <span id="set-line-label">Ligne départ</span>
     </button>
     <button class="set-line-btn" id="reset-heading-btn" onclick="resetHeading()"
-      style="top:150px;display:none;border-color:rgba(255,77,26,0.5);color:#ff4d1a;">
-      ↺ Direction
+      style="top:158px;display:none;border-color:rgba(255,77,26,0.5);color:#ff4d1a;font-size:11px;padding:5px 10px;">
+      ↺ Reset direction
     </button>
     <div class="kalman-badge" id="kalman-badge">KALMAN OFF</div>
   </div>
@@ -1013,6 +1100,8 @@
     <div class="perf-mode-bar" id="perf-mode-bar">
       <button class="perf-mode-btn active" id="pbtn-0100" onclick="setPerfMode('0-100')">0–100</button>
       <button class="perf-mode-btn" id="pbtn-100200" onclick="setPerfMode('100-200')">100–200</button>
+      <button class="perf-mode-btn" id="pbtn-6130" onclick="setPerfMode('60-130')">60–130</button>
+      <button class="perf-mode-btn" id="pbtn-brake" onclick="setPerfMode('brake')">FREIN</button>
       <button class="perf-mode-btn" id="pbtn-curve" onclick="setPerfMode('curve')">COURBE</button>
     </div>
 
@@ -1063,9 +1152,108 @@
   </div>
 </div>
 
+<!-- PROFIL VIEW -->
+<div class="view" id="view-profil">
+  <div style="overflow-y:auto;flex:1;padding:16px;display:flex;flex-direction:column;gap:12px;">
+
+    <!-- Identité -->
+    <div class="section-title" style="margin-top:0">Mon profil</div>
+    <div class="profil-card">
+      <div class="profil-avatar" id="profil-avatar">P</div>
+      <div style="flex:1">
+        <input class="driver-input" id="profil-name" placeholder="Ton prénom" maxlength="20"
+          style="width:100%;margin-bottom:8px;" oninput="saveProfile()"/>
+        <input class="driver-input" id="profil-vehicle" placeholder="Ta voiture (ex: Peugeot 306 1.8)" maxlength="30"
+          style="width:100%;" oninput="saveProfile()"/>
+      </div>
+    </div>
+
+    <!-- Stats globales -->
+    <div class="section-title">Stats globales</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;" id="profil-stats"></div>
+
+    <!-- Circuits sauvegardés -->
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <div class="section-title" style="margin:0">Mes circuits</div>
+      <button class="btn btn-secondary btn-small" onclick="addCircuitPrompt()" style="padding:6px 12px;font-size:11px;">+ Nouveau</button>
+    </div>
+    <div id="profil-circuits"></div>
+
+    <!-- Paramètres voix -->
+    <div class="section-title">Annonces vocales</div>
+    <div class="profil-card" style="flex-direction:column;gap:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-family:var(--mono);font-size:12px;font-weight:700;">Activer les annonces</div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="voice-toggle" onchange="saveProfile()" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-family:var(--mono);font-size:12px;font-weight:700;">Countdown départ multi</div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="countdown-toggle" onchange="saveProfile()" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--ink-mute);">
+        Annonces : temps au tour, delta secteur, record battu
+      </div>
+    </div>
+
+    <!-- Météo -->
+    <div class="section-title">Météo actuelle</div>
+    <div id="profil-weather" class="profil-card" style="justify-content:center;gap:16px;">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--ink-mute);">Chargement...</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- COUNTDOWN OVERLAY -->
+<div class="countdown-overlay hidden" id="countdown-overlay">
+  <div class="countdown-num" id="countdown-num">3</div>
+  <div class="countdown-sub" id="countdown-sub"></div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
+// ── DEBUG PANEL ──
+// Capture toutes les erreurs JS et les affiche à l'écran
+const _errors = [];
+window.onerror = (msg, src, line, col) => {
+  _errors.push(`❌ ${msg} (ligne ${line})`);
+  showDebugPanel();
+};
+window.onunhandledrejection = (e) => {
+  _errors.push(`❌ Promise: ${e.reason}`);
+  showDebugPanel();
+};
+function showDebugPanel() {
+  let panel = document.getElementById('debug-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'debug-panel';
+    panel.style.cssText = `position:fixed;bottom:0;left:0;right:0;background:#ff4747;color:#fff;padding:12px;z-index:9999;font-family:monospace;font-size:11px;max-height:40vh;overflow-y:auto;`;
+    panel.innerHTML = '<div style="font-weight:bold;margin-bottom:6px;">ERREURS JS — copie et envoie à Claude</div>';
+    document.body.appendChild(panel);
+  }
+  panel.innerHTML = '<div style="font-weight:bold;margin-bottom:6px;">ERREURS JS</div>' + _errors.map(e => `<div>${e}</div>`).join('');
+}
+// Bouton debug dans header (tap 3x sur le logo)
+let _logoTaps = 0;
+document.addEventListener('DOMContentLoaded', () => {
+  const logo = document.querySelector('.logo');
+  if (logo) logo.addEventListener('click', () => {
+    _logoTaps++;
+    if (_logoTaps >= 3) {
+      _logoTaps = 0;
+      if (_errors.length === 0) { alert('Aucune erreur JS détectée ✓'); }
+      else showDebugPanel();
+    }
+  });
+});
 // ══════════════════════════════════════
 // WAKE LOCK — empêche l'écran de s'éteindre
 // pendant un run ou un enregistrement
@@ -1528,6 +1716,12 @@ function onGPSUpdate(pos) {
 function onGPSError(err) {
   STATE.gpsActive = false;
   updateGPSBadge();
+  const msgs = {
+    1: 'GPS refusé — Réglages Safari → Confidentialité → Localisation',
+    2: 'Signal GPS indisponible — essaie à l\'extérieur',
+    3: 'GPS timeout — tap le badge GPS pour réessayer',
+  };
+  showToast(msgs[err.code] || 'Erreur GPS — tap le badge pour réessayer');
 }
 
 // ══════════════════════════════════════
@@ -1649,10 +1843,31 @@ function onDeviceMotion(event) {
 // GPS
 // ══════════════════════════════════════
 function startGPS() {
-  if (!navigator.geolocation) { showToast('GPS non disponible'); return; }
+  if (!navigator.geolocation) { showToast('GPS non disponible sur ce navigateur'); return; }
+  // Stop existing watch if any
+  if (STATE.watchId !== null) {
+    navigator.geolocation.clearWatch(STATE.watchId);
+    STATE.watchId = null;
+  }
+  document.getElementById('gps-status').textContent = 'GPS…';
   STATE.watchId = navigator.geolocation.watchPosition(onGPSUpdate, onGPSError, {
-    enableHighAccuracy: true, maximumAge: 0, timeout: 5000
+    enableHighAccuracy: true, maximumAge: 0, timeout: 10000
   });
+}
+
+function retryGPS() {
+  if (STATE.gpsActive) {
+    showToast('GPS actif ✓');
+    return;
+  }
+  showToast('Relance du GPS…');
+  startGPS();
+  // Fallback: si toujours pas de signal après 5s, afficher un message d'aide
+  setTimeout(() => {
+    if (!STATE.gpsActive) {
+      showToast('Autorise le GPS dans Safari → Réglages → Confidentialité');
+    }
+  }, 5000);
 }
 
 function triggerLapComplete() {
@@ -1695,6 +1910,13 @@ function triggerLapComplete() {
     showLapDelta(lap.time);
     updateLapDisplay();
     showToast(`Tour ${lap.number} : ${formatTime(lap.time)}`);
+    // Voice announcement
+    const best = getBestLap();
+    const delta = best && best.time !== lap.time ? lap.time - best.time : null;
+    announcelapTime(lap.number - 1, lap.time, delta);
+    if (best && lap.time === best.time && STATE.laps.length > 1) {
+      setTimeout(() => speak('Record personnel !'), 2000);
+    }
   }
 }
 
@@ -1905,26 +2127,41 @@ function resetHeading() {
 }
 
 function toggleSetLine() {
-  STATE.settingLine = !STATE.settingLine;
-  const btn = document.getElementById('set-line-btn');
-  const lbl = document.getElementById('set-line-label');
-  if (STATE.settingLine) {
-    btn.classList.add('active');
-    lbl.textContent = 'APPUIE SUR LA CARTE';
-    map.once('click', (e) => {
-      STATE.startLine = { lat: e.latlng.lat, lng: e.latlng.lng };
-      setStartMarker([e.latlng.lat, e.latlng.lng]);
-      STATE.settingLine = false;
-      btn.classList.remove('active');
-      lbl.textContent = 'LIGNE DÉPART ✓';
-      DB.set('lt_startline', STATE.startLine);
-      document.getElementById('reset-heading-btn').style.display = 'flex';
-      showToast('Ligne posée — la direction sera apprise au 1er passage');
-    });
+  if (STATE.currentPos) {
+    // GPS actif — pose la ligne à la position actuelle
+    const { lat, lng } = STATE.currentPos;
+    STATE.startLine = { lat, lng };
+    setStartMarker([lat, lng]);
+    DB.set('lt_startline', STATE.startLine);
+    document.getElementById('set-line-label').textContent = 'LIGNE DÉPART ✓';
+    document.getElementById('reset-heading-btn').style.display = 'flex';
+    showToast('Ligne posée à ta position GPS !');
   } else {
-    btn.classList.remove('active');
-    lbl.textContent = 'LIGNE DÉPART';
-    map.off('click');
+    // Pas de GPS — mode tap sur la carte
+    STATE.settingLine = !STATE.settingLine;
+    const btn = document.getElementById('set-line-btn');
+    const lbl = document.getElementById('set-line-label');
+    if (STATE.settingLine) {
+      btn.classList.add('active');
+      lbl.textContent = 'APPUIE SUR LA CARTE';
+      showToast('GPS inactif — tape sur la carte pour placer la ligne');
+      setTimeout(() => {
+        map.once('click', (e) => {
+          STATE.startLine = { lat: e.latlng.lat, lng: e.latlng.lng };
+          setStartMarker([e.latlng.lat, e.latlng.lng]);
+          STATE.settingLine = false;
+          btn.classList.remove('active');
+          lbl.textContent = 'LIGNE DÉPART ✓';
+          DB.set('lt_startline', STATE.startLine);
+          document.getElementById('reset-heading-btn').style.display = 'flex';
+          showToast('Ligne posée sur la carte');
+        });
+      }, 300);
+    } else {
+      btn.classList.remove('active');
+      lbl.textContent = STATE.startLine ? 'LIGNE DÉPART ✓' : 'Ligne départ';
+      map.off('click');
+    }
   }
 }
 
@@ -2114,7 +2351,7 @@ function renderSessions() {
     el.innerHTML = `<div class="empty-state"><span class="empty-icon">🏁</span><strong>Aucune session</strong>Lance ton premier tour pour la voir ici.</div>`;
     return;
   }
-  el.innerHTML = STATE.sessions.map(s => `
+  el.innerHTML = STATE.sessions.map((s, idx) => `
     <div class="session-card">
       ${buildMiniMap(s)}
       <div class="session-top">
@@ -2129,6 +2366,7 @@ function renderSessions() {
       </div>
       <div class="session-bottom">
         <div class="session-meta">${s.user} · ${s.date} · ${s.lapCount} tour${s.lapCount>1?'s':''}</div>
+        <button onclick="exportSessionPDF(${idx})" style="background:none;border:1px solid var(--ink);padding:3px 8px;font-family:var(--mono);font-size:10px;cursor:pointer;font-weight:700;letter-spacing:0.5px;">⬇ PDF</button>
       </div>
       <div class="session-laps">
         ${s.laps.map(l => `<div class="session-lap-pill ${l.time===s.bestLap?'best':''}">T${l.number} · ${formatTime(l.time)}</div>`).join('')}
@@ -2511,19 +2749,21 @@ function showDriverSwitcher(lastLap) {
 function confirmDriverSwitch() {
   document.getElementById('driver-switcher').classList.add('hidden');
 
-  // Reset for next driver's lap
-  STATE.recording = true;
-  STATE.lapStartTime = null;
-  STATE.crossedLine = false;
-  STATE.currentPoints = [];
-  trackLayer.clearLayers();
-
-  startChrono();
-  updateRecBtn(true);
-  updateGPSBadge();
-  updateLapDisplay();
-  showDriverHUD();
-  showToast(`${currentDriverName()} — passe sur la ligne !`);
+  // Countdown before next driver starts
+  runCountdown(() => {
+    STATE.recording = true;
+    STATE.lapStartTime = null;
+    STATE.crossedLine = false;
+    STATE.currentPoints = [];
+    trackLayer.clearLayers();
+    startChrono();
+    updateRecBtn(true);
+    updateGPSBadge();
+    updateLapDisplay();
+    showDriverHUD();
+    showToast(`${currentDriverName()} — passe sur la ligne !`);
+    speak(`À toi ${currentDriverName()}, passe sur la ligne de départ`);
+  });
 }
 
 function renderMultiLeaderboard() {
@@ -2595,19 +2835,23 @@ const PERF = {
 };
 
 const PERF_MODES = {
-  '0-100':   { label: '0 → 100 KM/H',   from: 0,   to: 100,  armed: 'Lâche les freins pour démarrer' },
-  '100-200': { label: '100 → 200 KM/H',  from: 100, to: 200,  armed: 'Roule à 100 km/h et accélère' },
-  'curve':   { label: 'COURBE D\'ACCÉLÉRATION', from: 0, to: 200, armed: 'Lâche les freins pour démarrer' },
+  '0-100':   { label: '0 → 100 KM/H',          from: 0,   to: 100, armed: 'Lâche les freins pour démarrer' },
+  '100-200': { label: '100 → 200 KM/H',         from: 100, to: 200, armed: 'Roule à 100 km/h et accélère' },
+  '60-130':  { label: '60 → 130 KM/H',          from: 60,  to: 130, armed: 'Roule à 60 km/h et accélère' },
+  'brake':   { label: 'FREINAGE 100 → 0 KM/H',  from: 100, to: 0,   armed: 'Roule à 100+ km/h puis freine fort', isBrake: true },
+  'curve':   { label: 'COURBE D\'ACCÉLÉRATION',  from: 0,   to: 200, armed: 'Lâche les freins pour démarrer' },
 };
 
 function setPerfMode(mode) {
   PERF.mode = mode;
   perfReset();
-  // Update buttons
   document.querySelectorAll('.perf-mode-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById(`pbtn-${mode.replace('-','')}`).classList.add('active');
+  // ID mapping: replace all dashes
+  const btnId = `pbtn-${mode.replace(/-/g,'')}`;
+  const btn = document.getElementById(btnId);
+  if (btn) btn.classList.add('active');
   const cfg = PERF_MODES[mode];
-  document.getElementById('perf-label').textContent = cfg.label;
+  if (cfg) document.getElementById('perf-label').textContent = cfg.label;
   renderPerfRecords();
 }
 
@@ -2661,34 +2905,41 @@ function perfTick() {
   document.getElementById('perf-speed-val').textContent = Math.round(speed);
 
   if (PERF.state === 'armed' && PERF.launchMode === 'auto') {
+    const cfg = PERF_MODES[PERF.mode];
+
     if (PERF.mode === '0-100' || PERF.mode === 'curve') {
-      // IMU-based launch: longitudinal accel > 0.3G (more sensitive than before)
-      // Use accelY (forward axis on iPhone) — gravity-corrected via Kalman
       const longAccel = Math.abs(STATE.accelY || 0);
       const launched = longAccel > 3 || speed > 4;
       if (launched) {
-        // Back-calculate start time using IMU: when did accel actually start?
-        // Simple: use current time minus half GPS interval as correction
-        PERF.startTime = now - 50; // ~50ms correction for detection lag
+        PERF.startTime = now - 50;
         PERF.state = 'running';
         PERF.graphPoints = [{ t: 0, speed }];
         document.getElementById('perf-time').classList.add('running');
         setPerfSub('EN COURS...', 'go');
       }
-    } else if (PERF.mode === '100-200') {
-      if (speed >= 99) {
-        // Interpolate exact moment we hit 100 km/h between prev and current GPS point
+    } else if (PERF.mode === '100-200' || PERF.mode === '60-130') {
+      const fromSpeed = cfg.from;
+      if (speed >= fromSpeed - 1) {
         const dt = now - PERF.prevSpeedTime;
         const dv = speed - PERF.prevSpeed;
-        const frac = dv > 0 ? (100 - PERF.prevSpeed) / dv : 0;
+        const frac = dv > 0 ? (fromSpeed - PERF.prevSpeed) / dv : 0;
         PERF.startTime = PERF.prevSpeedTime + dt * frac;
         PERF.state = 'running';
-        PERF.graphPoints = [{ t: 0, speed: 100 }];
+        PERF.graphPoints = [{ t: 0, speed: fromSpeed }];
         document.getElementById('perf-time').classList.add('running');
         setPerfSub('EN COURS...', 'go');
       }
+    } else if (PERF.mode === 'brake') {
+      // Attendre 100 km/h puis freinage
+      if (speed >= 99) {
+        PERF.startTime = now;
+        PERF.state = 'running';
+        PERF.graphPoints = [{ t: 0, speed }];
+        document.getElementById('perf-time').classList.add('running');
+        setPerfSub('FREINE FORT !', 'go');
+        speak('Freine !');
+      }
     }
-    // Track previous speed for interpolation
     PERF.prevSpeed = speed;
     PERF.prevSpeedTime = now;
     return;
@@ -2703,11 +2954,26 @@ function perfTick() {
     document.getElementById('perf-time').textContent = formatTime(elapsed);
     drawPerfGraph();
 
-    const target = PERF_MODES[PERF.mode].to;
+    const cfg = PERF_MODES[PERF.mode];
+    const target = cfg.to;
+
+    if (PERF.mode === 'brake') {
+      // Stop when speed drops below 2 km/h
+      if (speed < 2) {
+        // Calculate braking distance from graphPoints
+        let dist = 0;
+        for (let i = 1; i < PERF.graphPoints.length; i++) {
+          const dt = (PERF.graphPoints[i].t - PERF.graphPoints[i-1].t) / 1000;
+          const avgSpeed = (PERF.graphPoints[i].speed + PERF.graphPoints[i-1].speed) / 2 / 3.6;
+          dist += avgSpeed * dt;
+        }
+        PERF.brakeDistance = Math.round(dist);
+        perfFinish(elapsed);
+      }
+      return;
+    }
 
     if (PERF.mode !== 'curve' && speed >= target - 1) {
-      // Interpolate exact finish time between previous and current GPS point
-      // to avoid GPS 1Hz latency error
       const prevSpeed = PERF.prevSpeed;
       const dt = now - PERF.prevSpeedTime;
       const dv = speed - prevSpeed;
@@ -2757,8 +3023,21 @@ function perfFinish(elapsed) {
       document.getElementById('perf-best').textContent = 'Meilleur : ' + formatTime(best.time);
     }
     renderPerfRecords();
+    // Voice announce
+    if (PERF.mode === 'brake') {
+      speak(`Freinage : ${PERF.brakeDistance || '—'} mètres`);
+    } else {
+      const t = formatTimeVoice(elapsed);
+      speak(`${PERF_MODES[PERF.mode]?.label || ''}, ${t}`);
+    }
   } else {
     setPerfSub('Courbe complète', '');
+  }
+
+  // Show brake distance
+  if (PERF.mode === 'brake' && PERF.brakeDistance) {
+    document.getElementById('perf-time').textContent = `${PERF.brakeDistance}m`;
+    document.getElementById('perf-best').textContent = 'Distance de freinage depuis 100 km/h';
   }
 
   drawPerfGraph();
@@ -2913,15 +3192,6 @@ function drawPerfGraph() {
 // ══════════════════════════════════════
 // TABS
 // ══════════════════════════════════════
-function switchTab(tab) {
-  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['track','leaderboard','sessions','analyse','perf'][i]===tab));
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.getElementById('view-'+tab).classList.add('active');
-  if (tab==='track') setTimeout(()=>map.invalidateSize(),100);
-  if (tab==='analyse') { updateAnalyseLapSelect(); renderAnalyse(); }
-  if (tab==='perf') { clearPerfGraph(); renderPerfRecords(); }
-}
-
 // ══════════════════════════════════════
 // TOAST
 // ══════════════════════════════════════
@@ -2937,35 +3207,453 @@ function showToast(msg) {
 // ══════════════════════════════════════
 // INIT
 // ══════════════════════════════════════
+// ══════════════════════════════════════
+// VOICE ANNOUNCEMENTS
+// ══════════════════════════════════════
+const VOICE = {
+  synth: window.speechSynthesis,
+  enabled: true,
+};
+
+function speak(text) {
+  if (!VOICE.enabled || !VOICE.synth) return;
+  VOICE.synth.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'fr-FR';
+  u.rate = 1.1;
+  u.pitch = 1.0;
+  u.volume = 1.0;
+  VOICE.synth.speak(u);
+}
+
+function announcelapTime(lapNum, timeMs, deltaMs) {
+  if (!VOICE.enabled) return;
+  const t = formatTimeVoice(timeMs);
+  let msg = `Tour ${lapNum}, ${t}.`;
+  if (deltaMs !== null) {
+    const d = Math.abs(deltaMs / 1000).toFixed(1);
+    msg += deltaMs > 0 ? ` Plus ${d} secondes.` : ` Moins ${d} secondes.`;
+  }
+  speak(msg);
+}
+
+function formatTimeVoice(ms) {
+  const m = Math.floor(ms / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const cs = Math.floor((ms % 1000) / 100);
+  if (m > 0) return `${m} minute${m>1?'s':''} ${s} virgule ${cs}`;
+  return `${s} virgule ${cs} secondes`;
+}
+
+// ══════════════════════════════════════
+// COUNTDOWN (mode multi)
+// ══════════════════════════════════════
+function runCountdown(callback) {
+  const useCountdown = document.getElementById('countdown-toggle')?.checked ?? true;
+  if (!useCountdown) { callback(); return; }
+
+  const overlay = document.getElementById('countdown-overlay');
+  const numEl = document.getElementById('countdown-num');
+  const subEl = document.getElementById('countdown-sub');
+  overlay.classList.remove('hidden');
+
+  let count = 3;
+  numEl.textContent = count;
+  numEl.className = 'countdown-num';
+  subEl.textContent = 'PRÊT ?';
+  speak('Trois');
+
+  const tick = setInterval(() => {
+    count--;
+    if (count > 0) {
+      numEl.textContent = count;
+      numEl.className = 'countdown-num';
+      // Force CSS re-animation
+      numEl.style.animation = 'none';
+      numEl.offsetHeight;
+      numEl.style.animation = '';
+      speak(count === 2 ? 'Deux' : 'Un');
+    } else {
+      clearInterval(tick);
+      numEl.textContent = 'GO !';
+      numEl.className = 'countdown-num go';
+      subEl.textContent = '';
+      speak('Partez');
+      setTimeout(() => {
+        overlay.classList.add('hidden');
+        callback();
+      }, 600);
+    }
+  }, 900);
+}
+
+// ══════════════════════════════════════
+// MULTI CIRCUITS SAUVEGARDÉS
+// ══════════════════════════════════════
+let savedCircuits = [];
+
+async function loadSavedCircuits() {
+  const data = await DB.get('lt_circuits');
+  if (data) savedCircuits = data;
+}
+
+function saveCircuits() {
+  DB.set('lt_circuits', savedCircuits);
+}
+
+function addCircuitPrompt() {
+  const name = prompt('Nom du circuit :');
+  if (!name) return;
+  const existing = savedCircuits.find(c => c.name === name.trim());
+  if (existing) { showToast('Circuit déjà enregistré'); return; }
+
+  const circuit = {
+    id: Date.now(),
+    name: name.trim(),
+    startLine: STATE.startLine ? { ...STATE.startLine } : null,
+    date: new Date().toLocaleDateString('fr-FR'),
+    bestLap: null,
+  };
+  savedCircuits.unshift(circuit);
+  saveCircuits();
+  renderProfileCircuits();
+  showToast(`Circuit "${name.trim()}" sauvegardé !`);
+}
+
+function loadCircuit(id) {
+  const c = savedCircuits.find(x => x.id === id);
+  if (!c) return;
+  STATE.circuitName = c.name;
+  document.getElementById('circuit-badge').textContent = c.name.toUpperCase();
+
+  if (c.startLine) {
+    STATE.startLine = { ...c.startLine };
+    setStartMarker([c.startLine.lat, c.startLine.lng]);
+    document.getElementById('set-line-label').textContent = 'LIGNE DÉPART ✓';
+    if (c.startLine.heading !== undefined) {
+      document.getElementById('reset-heading-btn').style.display = 'flex';
+    }
+  }
+  switchTab('track');
+  showToast(`Circuit "${c.name}" chargé !`);
+}
+
+function deleteCircuit(id) {
+  savedCircuits = savedCircuits.filter(c => c.id !== id);
+  saveCircuits();
+  renderProfileCircuits();
+}
+
+function renderProfileCircuits() {
+  const el = document.getElementById('profil-circuits');
+  if (!savedCircuits.length) {
+    el.innerHTML = `<div style="font-family:var(--mono);font-size:11px;color:var(--ink-mute);padding:8px 0;">Aucun circuit sauvegardé. Pose une ligne de départ et appuie sur "+ Nouveau".</div>`;
+    return;
+  }
+  el.innerHTML = savedCircuits.map(c => {
+    const best = STATE.sessions.filter(s => s.circuit === c.name).reduce((b, s) => (!b || s.bestLap < b) ? s.bestLap : b, null);
+    return `
+      <div class="circuit-saved-card">
+        <div style="flex:1">
+          <div class="circuit-saved-name">${c.name}</div>
+          <div class="circuit-saved-meta">${c.date}${best ? ' · Best: ' + formatTime(best) : ''}</div>
+        </div>
+        <button class="circuit-use-btn" onclick="loadCircuit(${c.id})">CHARGER</button>
+        <button onclick="deleteCircuit(${c.id})" style="background:none;border:none;font-size:16px;cursor:pointer;padding:4px;">🗑</button>
+      </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════
+// PROFIL & STATS
+// ══════════════════════════════════════
+function saveProfile() {
+  const name = document.getElementById('profil-name')?.value.trim();
+  const vehicle = document.getElementById('profil-vehicle')?.value.trim();
+  if (name) {
+    STATE.userName = name;
+    DB.set('lt_username', name);
+    const av = document.getElementById('profil-avatar');
+    if (av) av.textContent = name[0].toUpperCase();
+  }
+  if (vehicle) DB.set('lt_vehicle', vehicle);
+  VOICE.enabled = document.getElementById('voice-toggle')?.checked ?? true;
+  DB.set('lt_voice', VOICE.enabled);
+  DB.set('lt_countdown', document.getElementById('countdown-toggle')?.checked ?? true);
+}
+
+function renderProfileStats() {
+  const el = document.getElementById('profil-stats');
+  if (!el) return;
+
+  const totalSessions = STATE.sessions.length;
+  const totalLaps = STATE.sessions.reduce((acc, s) => acc + (s.lapCount || 0), 0);
+  const allBests = STATE.sessions.filter(s => s.bestLap).map(s => s.bestLap);
+  const overallBest = allBests.length ? formatTime(Math.min(...allBests)) : '—';
+  const circuits = new Set(STATE.sessions.map(s => s.circuit)).size;
+
+  el.innerHTML = [
+    { val: totalSessions, label: 'Sessions' },
+    { val: totalLaps, label: 'Tours total' },
+    { val: overallBest, label: 'Meilleur tour' },
+    { val: circuits, label: 'Circuits' },
+  ].map(s => `
+    <div class="profil-stat-card">
+      <div class="profil-stat-val">${s.val}</div>
+      <div class="profil-stat-label">${s.label}</div>
+    </div>
+  `).join('');
+}
+
+// ══════════════════════════════════════
+// MÉTÉO
+// ══════════════════════════════════════
+async function fetchWeather() {
+  const el = document.getElementById('profil-weather');
+  if (!el) return;
+
+  if (!STATE.currentPos) {
+    el.innerHTML = `<div style="font-family:var(--mono);font-size:11px;color:var(--ink-mute);">GPS requis pour la météo</div>`;
+    return;
+  }
+
+  try {
+    const { lat, lng } = STATE.currentPos;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,weathercode,windspeed_10m,relativehumidity_2m&wind_speed_unit=kmh`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const c = data.current;
+    const desc = weatherCodeToDesc(c.weathercode);
+    const icon = weatherCodeToIcon(c.weathercode);
+
+    el.innerHTML = `
+      <div class="weather-wrap">
+        <div style="font-size:40px;">${icon}</div>
+        <div>
+          <div class="weather-temp">${Math.round(c.temperature_2m)}°C</div>
+          <div class="weather-desc">${desc}</div>
+        </div>
+        <div>
+          <div class="weather-detail">💨 ${Math.round(c.windspeed_10m)} km/h</div>
+          <div class="weather-detail">💧 ${c.relativehumidity_2m}%</div>
+          <div class="weather-detail" style="margin-top:4px;color:var(--ink-mute);font-size:9px;">Open-Meteo</div>
+        </div>
+      </div>`;
+  } catch {
+    el.innerHTML = `<div style="font-family:var(--mono);font-size:11px;color:var(--ink-mute);">Météo indisponible</div>`;
+  }
+}
+
+function weatherCodeToDesc(code) {
+  const map = { 0:'Ciel dégagé',1:'Peu nuageux',2:'Partiellement nuageux',3:'Couvert',45:'Brouillard',48:'Brouillard givrant',51:'Bruine légère',53:'Bruine modérée',55:'Bruine dense',61:'Pluie légère',63:'Pluie modérée',65:'Pluie forte',71:'Neige légère',73:'Neige modérée',75:'Neige forte',80:'Averses légères',81:'Averses modérées',82:'Averses violentes',95:'Orage',96:'Orage avec grêle',99:'Orage avec forte grêle' };
+  return map[code] || 'Conditions inconnues';
+}
+
+function weatherCodeToIcon(code) {
+  if (code === 0) return '☀️';
+  if (code <= 2) return '🌤️';
+  if (code === 3) return '☁️';
+  if (code <= 48) return '🌫️';
+  if (code <= 55) return '🌦️';
+  if (code <= 65) return '🌧️';
+  if (code <= 75) return '❄️';
+  if (code <= 82) return '🌧️';
+  return '⛈️';
+}
+
+// ══════════════════════════════════════
+// OFFLINE — tile caching via Service Worker
+// ══════════════════════════════════════
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  const swCode = `
+const CACHE = 'laptrack-tiles-v1';
+self.addEventListener('fetch', e => {
+  if (e.request.url.includes('basemaps.cartocdn.com') || e.request.url.includes('tile.openstreetmap')) {
+    e.respondWith(
+      caches.open(CACHE).then(cache =>
+        cache.match(e.request).then(cached => {
+          if (cached) return cached;
+          return fetch(e.request).then(resp => {
+            cache.put(e.request, resp.clone());
+            return resp;
+          }).catch(() => cached);
+        })
+      )
+    );
+  }
+});`;
+  const blob = new Blob([swCode], { type: 'application/javascript' });
+  const url = URL.createObjectURL(blob);
+  navigator.serviceWorker.register(url).catch(() => {});
+}
+
+// ══════════════════════════════════════
+// EXPORT PDF SESSION
+// ══════════════════════════════════════
+async function exportSessionPDF(sessionIdx) {
+  const s = STATE.sessions[sessionIdx];
+  if (!s) return;
+
+  // Build mini map SVG
+  const mapSVG = buildMiniMapSVGString(s);
+
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<title>LapTrack — ${s.circuit}</title>
+<style>
+  body { font-family: 'Courier New', monospace; background: #fff; color: #0a0a0a; padding: 40px; max-width: 700px; margin: 0 auto; }
+  h1 { font-size: 28px; font-weight: 900; text-transform: uppercase; letter-spacing: -1px; border-bottom: 3px solid #0a0a0a; padding-bottom: 12px; }
+  .meta { font-size: 12px; color: #555; margin: 8px 0 24px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+  .stat { border: 2px solid #0a0a0a; padding: 12px; text-align: center; }
+  .stat-val { font-size: 22px; font-weight: 800; }
+  .stat-label { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: #555; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+  th { background: #0a0a0a; color: #fff; padding: 8px 12px; text-align: left; font-size: 11px; letter-spacing: 1px; }
+  td { padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 13px; }
+  tr.best td { background: #fffde0; font-weight: 800; }
+  .map-wrap { border: 2px solid #0a0a0a; margin: 20px 0; }
+  .footer { font-size: 10px; color: #aaa; margin-top: 40px; text-align: center; }
+</style></head><body>
+<h1>LapTrack — Rapport de session</h1>
+<div class="meta">Circuit : <b>${s.circuit}</b> · Pilote : <b>${s.user}</b> · Date : ${s.date}${s.vehicle ? ' · ' + s.vehicle : ''}</div>
+
+<div class="stats">
+  <div class="stat"><div class="stat-val">${formatTime(s.bestLap)}</div><div class="stat-label">Meilleur tour</div></div>
+  <div class="stat"><div class="stat-val">${s.lapCount}</div><div class="stat-label">Tours</div></div>
+  <div class="stat"><div class="stat-val">${s.fusionUsed ? 'OUI' : 'NON'}</div><div class="stat-label">Kalman actif</div></div>
+</div>
+
+<div class="map-wrap">${mapSVG}</div>
+
+<table>
+  <tr><th>Tour</th><th>Temps</th><th>Delta</th><th>V.Max</th></tr>
+  ${s.laps.map(l => {
+    const isBest = l.time === s.bestLap;
+    const delta = l.time - s.bestLap;
+    const vmax = l.points ? Math.round(Math.max(...l.points.map(p => p.speed || 0))) : '—';
+    return `<tr class="${isBest ? 'best' : ''}">
+      <td>T${l.number}${isBest ? ' ★' : ''}</td>
+      <td>${formatTime(l.time)}</td>
+      <td>${isBest ? 'BEST' : '+' + formatTime(delta)}</td>
+      <td>${vmax} km/h</td>
+    </tr>`;
+  }).join('')}
+</table>
+
+<div class="footer">Généré par LapTrack · ${new Date().toLocaleString('fr-FR')}</div>
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `laptrack_${s.circuit.replace(/\s+/g,'_')}_${s.date.replace(/\//g,'-')}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Rapport exporté !');
+}
+
+function buildMiniMapSVGString(session) {
+  const allPoints = (session.laps || []).flatMap(l => l.points || []);
+  if (allPoints.length < 3) return '<div style="padding:20px;text-align:center;color:#aaa">Pas de tracé</div>';
+
+  const lats = allPoints.map(p => p.lat), lngs = allPoints.map(p => p.lng);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const rangeLat = maxLat - minLat || 0.0001, rangeLng = maxLng - minLng || 0.0001;
+  const W = 640, H = 280, PAD = 20;
+  const gW = W - PAD*2, gH = H - PAD*2;
+  const scale = Math.min(gW/rangeLng, gH/rangeLat);
+  const offX = PAD + (gW - rangeLng*scale)/2;
+  const offY = PAD + (gH - rangeLat*scale)/2;
+
+  function tx(lng) { return offX + (lng - minLng)*scale; }
+  function ty(lat) { return offY + (maxLat - lat)*scale; }
+
+  const bestLap = session.laps.reduce((b,l) => l.time < b.time ? l : b, session.laps[0]);
+  let segs = '';
+  session.laps.forEach(lap => {
+    const pts = lap.points || [];
+    const isBest = lap.time === bestLap.time;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i-1], b = pts[i];
+      const ratio = Math.min((((a.speed||0)+(b.speed||0))/2)/120,1);
+      const r = ratio < 0.5 ? 255 : Math.round((1-(ratio-0.5)*2)*255);
+      const g = ratio < 0.5 ? Math.round(ratio*2*255) : 220;
+      const color = isBest ? `rgb(${r},${g},0)` : '#ccc';
+      const w = isBest ? 3 : 1;
+      segs += `<line x1="${tx(a.lng).toFixed(1)}" y1="${ty(a.lat).toFixed(1)}" x2="${tx(b.lng).toFixed(1)}" y2="${ty(b.lat).toFixed(1)}" stroke="${color}" stroke-width="${w}" stroke-linecap="round"/>`;
+    }
+  });
+
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%">
+    <rect width="${W}" height="${H}" fill="#f8f8f8"/>
+    ${segs}
+  </svg>`;
+}
+
+// ══════════════════════════════════════
+// TABS — updated for 6 tabs
+// ══════════════════════════════════════
+function switchTab(tab) {
+  const tabs = ['track','leaderboard','sessions','analyse','perf','profil'];
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', tabs[i]===tab));
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-'+tab).classList.add('active');
+  if (tab==='track') setTimeout(()=>map.invalidateSize(),100);
+  if (tab==='analyse') { updateAnalyseLapSelect(); renderAnalyse(); }
+  if (tab==='perf') { clearPerfGraph(); renderPerfRecords(); }
+  if (tab==='profil') {
+    renderProfileStats();
+    renderProfileCircuits();
+    fetchWeather();
+    const nameEl = document.getElementById('profil-name');
+    const vehicleEl = document.getElementById('profil-vehicle');
+    if (nameEl && STATE.userName) nameEl.value = STATE.userName;
+    DB.get('lt_vehicle').then(v => { if (v && vehicleEl) vehicleEl.value = v; });
+    DB.get('lt_voice').then(v => { if (document.getElementById('voice-toggle')) document.getElementById('voice-toggle').checked = v !== false; });
+    DB.get('lt_countdown').then(v => { if (document.getElementById('countdown-toggle')) document.getElementById('countdown-toggle').checked = v !== false; });
+    const av = document.getElementById('profil-avatar');
+    if (av && STATE.userName) av.textContent = STATE.userName[0].toUpperCase();
+  }
+}
+
 async function init() {
   // Load all persisted data from IndexedDB
-  const [sessions, username, startline, perfRecords] = await Promise.all([
+  const [sessions, username, startline, perfRecords, voice, circuits] = await Promise.all([
     DB.get('lt_sessions'),
     DB.get('lt_username'),
     DB.get('lt_startline'),
     DB.get('lt_perf_records'),
+    DB.get('lt_voice'),
+    DB.get('lt_circuits'),
   ]);
 
   if (sessions) STATE.sessions = sessions;
   if (username) STATE.userName = username;
   if (perfRecords) PERF.records = perfRecords;
+  if (voice !== null && voice !== undefined) VOICE.enabled = voice;
+  if (circuits) savedCircuits = circuits;
+
   if (startline) {
     STATE.startLine = startline;
     setStartMarker([startline.lat, startline.lng]);
     document.getElementById('set-line-label').textContent = 'LIGNE DÉPART ✓';
+    if (startline.heading !== undefined) {
+      document.getElementById('reset-heading-btn').style.display = 'flex';
+    }
   }
 
-  // Mode overlay hidden on load
   document.getElementById('mode-overlay').classList.add('hidden');
 
   renderSessions();
   renderLeaderboard();
   updateCircuitSelect();
+  registerServiceWorker();
 
-  // Auto-start GPS immédiatement, capteurs demandés au premier tap
-  setTimeout(() => {
-    startGPS();
-  }, 500);
+  setTimeout(() => startGPS(), 500);
 }
 
 init();
