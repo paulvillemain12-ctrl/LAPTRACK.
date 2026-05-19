@@ -909,7 +909,7 @@
 <header>
   <div class="logo">LapTrack <span>· timing</span></div>
   <div class="status-row">
-    <div class="badge">
+    <div class="badge" onclick="retryGPS()" style="cursor:pointer;" title="Tap pour relancer le GPS">
       <div class="dot" id="gps-dot"></div>
       <span id="gps-status">GPS</span>
     </div>
@@ -1681,6 +1681,12 @@ function onGPSUpdate(pos) {
 function onGPSError(err) {
   STATE.gpsActive = false;
   updateGPSBadge();
+  const msgs = {
+    1: 'GPS refusé — Réglages Safari → Confidentialité → Localisation',
+    2: 'Signal GPS indisponible — essaie à l\'extérieur',
+    3: 'GPS timeout — tap le badge GPS pour réessayer',
+  };
+  showToast(msgs[err.code] || 'Erreur GPS — tap le badge pour réessayer');
 }
 
 // ══════════════════════════════════════
@@ -1802,10 +1808,31 @@ function onDeviceMotion(event) {
 // GPS
 // ══════════════════════════════════════
 function startGPS() {
-  if (!navigator.geolocation) { showToast('GPS non disponible'); return; }
+  if (!navigator.geolocation) { showToast('GPS non disponible sur ce navigateur'); return; }
+  // Stop existing watch if any
+  if (STATE.watchId !== null) {
+    navigator.geolocation.clearWatch(STATE.watchId);
+    STATE.watchId = null;
+  }
+  document.getElementById('gps-status').textContent = 'GPS…';
   STATE.watchId = navigator.geolocation.watchPosition(onGPSUpdate, onGPSError, {
-    enableHighAccuracy: true, maximumAge: 0, timeout: 5000
+    enableHighAccuracy: true, maximumAge: 0, timeout: 10000
   });
+}
+
+function retryGPS() {
+  if (STATE.gpsActive) {
+    showToast('GPS actif ✓');
+    return;
+  }
+  showToast('Relance du GPS…');
+  startGPS();
+  // Fallback: si toujours pas de signal après 5s, afficher un message d'aide
+  setTimeout(() => {
+    if (!STATE.gpsActive) {
+      showToast('Autorise le GPS dans Safari → Réglages → Confidentialité');
+    }
+  }, 5000);
 }
 
 function triggerLapComplete() {
