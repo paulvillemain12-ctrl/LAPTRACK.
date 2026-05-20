@@ -1593,6 +1593,10 @@ function updateMapPosition(lat, lng) {
   } else {
     posMarker.setLatLng(latlng);
     updateCarHeading(lat, lng);
+    // Suivre la voiture pendant l'enregistrement
+    if (STATE.recording) {
+      map.panTo(latlng, { animate: true, duration: 0.5 });
+    }
   }
 }
 
