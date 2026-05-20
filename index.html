@@ -909,13 +909,17 @@
 <header>
   <div class="logo">LapTrack <span>· timing</span></div>
   <div class="status-row">
-    <div class="badge" onclick="retryGPS()" style="cursor:pointer;" title="Tap pour relancer le GPS">
+    <div class="badge" onclick="retryGPS()" style="cursor:pointer;">
       <div class="dot" id="gps-dot"></div>
       <span id="gps-status">GPS</span>
     </div>
     <div class="badge">
       <div class="dot" id="imu-dot"></div>
       <span id="imu-status">IMU</span>
+    </div>
+    <div class="badge" id="cloud-badge" onclick="forceCloudSync()" style="cursor:pointer;">
+      <div class="dot" id="cloud-dot"></div>
+      <span id="cloud-status">CLOUD</span>
     </div>
   </div>
 </header>
@@ -1233,25 +1237,84 @@ const SUPA = {
   },
 
   async insert(table, data) {
+    updateCloudBadge('sync');
     try {
       const res = await fetch(`${SUPA_URL}/rest/v1/${table}`, {
         method: 'POST',
         headers: { ...this.headers, 'Prefer': 'return=representation' },
         body: JSON.stringify(data),
       });
-      return await res.json();
-    } catch (e) { console.warn('Supabase insert error:', e); return null; }
+      const result = await res.json();
+      if (result && !result.error) updateCloudBadge('ok');
+      else updateCloudBadge('error');
+      return result;
+    } catch (e) {
+      updateCloudBadge('error');
+      console.warn('Supabase insert error:', e);
+      return null;
+    }
   },
 
   async select(table, filters = '') {
+    updateCloudBadge('sync');
     try {
       const res = await fetch(`${SUPA_URL}/rest/v1/${table}?order=created_at.desc&limit=100${filters}`, {
         headers: this.headers,
       });
-      return await res.json();
-    } catch (e) { console.warn('Supabase select error:', e); return []; }
+      const result = await res.json();
+      updateCloudBadge('ok');
+      return result;
+    } catch (e) {
+      updateCloudBadge('error');
+      console.warn('Supabase select error:', e);
+      return [];
+    }
   },
 };
+
+function updateCloudBadge(state) {
+  const dot = document.getElementById('cloud-dot');
+  const status = document.getElementById('cloud-status');
+  if (!dot || !status) return;
+  dot.className = 'dot';
+  dot.style.background = '';
+  if (state === 'ok') {
+    dot.classList.add('active');
+    status.textContent = 'CLOUD';
+  } else if (state === 'sync') {
+    dot.classList.add('warn');
+    status.textContent = 'SYNC';
+  } else if (state === 'error') {
+    dot.style.background = '#ff4747';
+    dot.style.boxShadow = '0 0 6px #ff4747';
+    status.textContent = 'OFFLINE';
+  }
+}
+
+async function forceCloudSync() {
+  showToast('Synchronisation cloud...');
+  updateCloudBadge('sync');
+  const data = await SUPA.select('sessions');
+  if (data && Array.isArray(data) && data.length > 0) {
+    const supabaseSessions = data.map(s => ({
+      id: s.id,
+      circuit: s.circuit,
+      user: s.user_name,
+      vehicle: s.vehicle,
+      date: s.date,
+      bestLap: s.best_lap,
+      lapCount: s.lap_count,
+      fusionUsed: s.fusion_used,
+      laps: s.laps || [],
+    }));
+    STATE.sessions = supabaseSessions;
+    DB.set('lt_sessions', STATE.sessions);
+    renderSessions(); renderLeaderboard(); updateCircuitSelect();
+    showToast(`${data.length} sessions chargées ✓`);
+  } else {
+    showToast('Aucune session sur le cloud');
+  }
+}
 
 
 // pendant un run ou un enregistrement
