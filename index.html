@@ -658,6 +658,16 @@
     font-family: var(--mono); font-size: 9px; color: var(--ink-mute);
     letter-spacing: 0.5px; text-transform: uppercase; font-weight: 700;
   }
+  .sector-hud-chip {
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    padding: 3px 8px; border: 1.5px solid rgba(255,255,255,0.2);
+    background: rgba(10,10,10,0.6); color: rgba(255,255,255,0.7);
+    letter-spacing: 0.5px;
+  }
+  .sector-hud-chip.done-best { border-color: #a855f7; color: #a855f7; background: rgba(168,85,247,0.15); }
+  .sector-hud-chip.done-good { border-color: #22c55e; color: #22c55e; background: rgba(34,197,94,0.1); }
+  .sector-hud-chip.done-bad  { border-color: #ef4444; color: #ef4444; background: rgba(239,68,68,0.1); }
+
   .sector-row {
     background: var(--paper);
     border: 2.5px solid var(--ink);
@@ -1008,6 +1018,12 @@
       <div class="lap-delta" id="lap-delta"></div>
     </div>
     <div class="chrono-time" id="chrono-display">00:00.00</div>
+    <!-- Mini secteurs live -->
+    <div id="sector-hud" style="display:none;margin-top:8px;display:flex;gap:6px;justify-content:center;">
+      <div class="sector-hud-chip" id="s1-chip">S1 —</div>
+      <div class="sector-hud-chip" id="s2-chip">S2 —</div>
+      <div class="sector-hud-chip" id="s3-chip">S3 —</div>
+    </div>
   </div>
 
   <!-- Top right actions -->
@@ -1520,10 +1536,12 @@ const STATE = {
   imuInterval: null,
   sensorsAuthorized: false,
   // MODE
-  mode: 'solo',            // 'solo' | 'multi'
-  drivers: [],             // [{name, vehicle}]
-  currentDriverIdx: 0,     // index dans drivers[]
-  driverResults: [],       // [{name, vehicle, bestLap, laps[]}]
+  mode: 'solo',
+  drivers: [],
+  currentDriverIdx: 0,
+  driverResults: [],
+  // SECTEURS — définis au premier tour complet
+  sectors: null,  // [{lat, lng, distRatio}] — points S1 et S2 sur le tracé
 };
 
 const kalman = new KalmanFilter();
@@ -1539,6 +1557,84 @@ let posMarker = null;
 let startMarker = null;
 let startCircle = null;
 let startLinePolyline = null;
+let sectorMarkers = []; // marqueurs S1 et S2 sur la carte
+
+// ══════════════════════════════════════
+// SECTEURS — calcul et affichage
+// ══════════════════════════════════════
+function computeAndSetSectors(points) {
+  if (points.length < 6) return;
+
+  // Calcule la distance cumulée sur le tracé
+  let cumDist = [0];
+  for (let i = 1; i < points.length; i++) {
+    const d = haversineDistance(points[i-1].lat, points[i-1].lng, points[i].lat, points[i].lng);
+    cumDist.push(cumDist[i-1] + d);
+  }
+  const totalDist = cumDist[cumDist.length - 1];
+
+  // Trouve les points à 33% et 66% de la distance totale
+  const targets = [0.333, 0.666];
+  const sectorPoints = targets.map(ratio => {
+    const targetDist = totalDist * ratio;
+    let idx = cumDist.findIndex(d => d >= targetDist);
+    if (idx < 0) idx = points.length - 1;
+    return { lat: points[idx].lat, lng: points[idx].lng, distRatio: ratio };
+  });
+
+  STATE.sectors = sectorPoints;
+  DB.set('lt_sectors_' + STATE.circuitName, sectorPoints);
+  drawSectorMarkers(sectorPoints);
+  showToast('Secteurs S1/S2 définis automatiquement ✓');
+}
+
+function drawSectorMarkers(sectors) {
+  // Supprimer anciens marqueurs
+  sectorMarkers.forEach(m => map.removeLayer(m));
+  sectorMarkers = [];
+
+  const colors = ['#a855f7', '#a855f7']; // violet F1
+  const labels = ['S1', 'S2'];
+
+  sectors.forEach((s, i) => {
+    const icon = L.divIcon({
+      html: `<div style="
+        background:${colors[i]};color:white;
+        font-family:var(--display,sans-serif);font-weight:900;
+        font-size:11px;padding:3px 7px;
+        border:2px solid #0a0a0a;
+        box-shadow:2px 2px 0 #0a0a0a;
+        white-space:nowrap;
+      ">${labels[i]}</div>`,
+      iconSize: null, iconAnchor: [14, 10], className: ''
+    });
+    const m = L.marker([s.lat, s.lng], { icon }).addTo(map);
+    sectorMarkers.push(m);
+  });
+}
+
+function getSectorTimes(points) {
+  // Retourne les temps de chaque secteur basés sur les points du tour
+  if (!STATE.sectors || points.length < 3) return null;
+
+  const sectorTimes = [];
+  const startT = points[0].t;
+
+  STATE.sectors.forEach(sector => {
+    // Trouve le point du tour le plus proche du marqueur de secteur
+    let minDist = Infinity, closestIdx = 0;
+    points.forEach((p, i) => {
+      const d = haversineDistance(p.lat, p.lng, sector.lat, sector.lng);
+      if (d < minDist) { minDist = d; closestIdx = i; }
+    });
+    sectorTimes.push(points[closestIdx].t - startT);
+  });
+
+  // S3 = fin du tour
+  sectorTimes.push(points[points.length - 1].t - startT);
+
+  return sectorTimes; // [S1_time, S2_time, S3_time] en ms depuis le début du tour
+}
 let carHeading = 0; // degrés, nord = 0
 
 function carSVG(heading) {
@@ -2056,7 +2152,20 @@ function triggerLapComplete() {
   const lapTime = now - STATE.lapStartTime;
   if (lapTime < 10000) return;
 
-  const lap = { number: STATE.lapNumber, time: lapTime, points: [...STATE.currentPoints] };
+  // Calculer les temps de secteur
+  const sectorTimes = getSectorTimes(STATE.currentPoints);
+  const lap = {
+    number: STATE.lapNumber,
+    time: lapTime,
+    points: [...STATE.currentPoints],
+    sectorTimes, // [S1_ms, S2_ms, S3_ms] depuis début du tour
+  };
+
+  // Premier tour complet → définir les secteurs S1/S2 automatiquement
+  if (STATE.laps.length === 0 && !STATE.sectors) {
+    computeAndSetSectors(STATE.currentPoints);
+  }
+
   STATE.laps.push(lap);
   STATE.currentPoints = [];
   STATE.lapStartTime = now;
@@ -2096,8 +2205,54 @@ function startChrono() {
   STATE.chronoInterval = setInterval(() => {
     if (STATE.lapStartTime) {
       document.getElementById('chrono-display').textContent = formatTime(Date.now() - STATE.lapStartTime);
+      updateLiveSectorHUD();
     }
   }, 33);
+}
+
+function updateLiveSectorHUD() {
+  if (!STATE.sectors || !STATE.laps.length) return;
+  const hud = document.getElementById('sector-hud');
+  if (!hud) return;
+  hud.style.display = 'flex';
+
+  const bestLap = getBestLap();
+  if (!bestLap || !bestLap.sectorTimes) return;
+
+  // Calcule les temps secteur actuels basés sur la position actuelle
+  const currentPoints = STATE.currentPoints;
+  if (currentPoints.length < 2) return;
+
+  const sectorLabels = ['S1', 'S2', 'S3'];
+  const chips = ['s1-chip', 's2-chip', 's3-chip'];
+
+  STATE.sectors.forEach((sector, i) => {
+    const chip = document.getElementById(chips[i]);
+    if (!chip) return;
+
+    // Cherche si on a dépassé ce secteur
+    let passed = false;
+    let sectorT = null;
+    for (let j = currentPoints.length - 1; j >= 0; j--) {
+      const d = haversineDistance(currentPoints[j].lat, currentPoints[j].lng, sector.lat, sector.lng);
+      if (d < 20) {
+        passed = true;
+        sectorT = currentPoints[j].t - currentPoints[0].t;
+        break;
+      }
+    }
+
+    if (passed && sectorT !== null) {
+      const bestSectorT = bestLap.sectorTimes[i];
+      const delta = sectorT - bestSectorT;
+      const sign = delta > 0 ? '+' : '';
+      chip.textContent = `${sectorLabels[i]} ${sign}${formatTime(Math.abs(delta))}`;
+      chip.className = 'sector-hud-chip ' + (delta < -100 ? 'done-best' : delta < 500 ? 'done-good' : 'done-bad');
+    } else {
+      chip.textContent = `${sectorLabels[i]} —`;
+      chip.className = 'sector-hud-chip';
+    }
+  });
 }
 
 function stopChrono() { clearInterval(STATE.chronoInterval); }
@@ -2687,53 +2842,50 @@ function renderAnalyse() {
     </div>
   `;
 
-  // ── SECTORS (3 equal parts) ──
-  const sectorSize = Math.floor(points.length / 3);
-  const sectors = [
-    points.slice(0, sectorSize),
-    points.slice(sectorSize, sectorSize * 2),
-    points.slice(sectorSize * 2),
-  ];
-
-  let bestSectors = null;
-  if (!isBest && best && best.points && best.points.length > 5) {
-    const bs = Math.floor(best.points.length / 3);
-    bestSectors = [
-      best.points.slice(0, bs),
-      best.points.slice(bs, bs * 2),
-      best.points.slice(bs * 2),
-    ];
-  }
-
-  const sectorColors = ['#5ec5ff','#c4f542','#ff5757'];
+  // ── SECTEURS FIXES (basés sur STATE.sectors) ──
+  const sectorColors = ['#a855f7','#a855f7','#a855f7'];
   const sectorNames = ['S1','S2','S3'];
 
-  sectorsEl.innerHTML = '<div class="section-title" style="margin-top:8px">Secteurs</div>' +
-    sectors.map((seg, si) => {
-      if (seg.length < 2) return '';
-      const segTime = seg[seg.length-1].t - seg[0].t;
-      let deltaHtml = '<div class="sector-delta" style="color:var(--muted)">—</div>';
-      if (bestSectors && bestSectors[si] && bestSectors[si].length > 1) {
-        const bestSegTime = bestSectors[si][bestSectors[si].length-1].t - bestSectors[si][0].t;
+  if (lap.sectorTimes && best && best.sectorTimes) {
+    // Calcul des temps par secteur depuis les timestamps cumulés
+    const lapSectors = [
+      lap.sectorTimes[0],
+      lap.sectorTimes[1] - lap.sectorTimes[0],
+      lap.sectorTimes[2] - lap.sectorTimes[1],
+    ];
+    const bestSectors = [
+      best.sectorTimes[0],
+      best.sectorTimes[1] - best.sectorTimes[0],
+      best.sectorTimes[2] - best.sectorTimes[1],
+    ];
+
+    sectorsEl.innerHTML = '<div class="section-title" style="margin-top:8px">Secteurs (fixes)</div>' +
+      lapSectors.map((segTime, si) => {
+        const bestSegTime = bestSectors[si];
         const d = segTime - bestSegTime;
-        const cls = d > 0 ? 'pos' : 'neg';
-        deltaHtml = `<div class="sector-delta ${cls}">${d>0?'+':''}${formatTime(Math.abs(d))}</div>`;
-      }
-      const vMaxSeg = Math.round(Math.max(...seg.map(p=>p.speed||0)));
-      const barPct = Math.round((segTime / lapTime) * 100);
-      return `
-        <div class="sector-row" style="margin-top:6px">
-          <div class="sector-label" style="color:${sectorColors[si]};border-color:${sectorColors[si]}40">${sectorNames[si]}</div>
-          <div style="flex:1">
-            <div class="sector-bar-wrap">
-              <div class="sector-bar" style="width:${barPct}%;background:${sectorColors[si]}"></div>
+        const isBestSector = d <= 0;
+        const cls = isBestSector ? 'neg' : 'pos';
+        const deltaHtml = isBest
+          ? `<div class="sector-delta" style="color:var(--muted)">BEST</div>`
+          : `<div class="sector-delta ${cls}">${d>0?'+':''}${formatTime(Math.abs(d))}</div>`;
+        const barPct = Math.round((segTime / lapTime) * 100);
+        const color = isBest ? '#a855f7' : (isBestSector ? '#22c55e' : '#ef4444');
+        return `
+          <div class="sector-row" style="margin-top:6px">
+            <div class="sector-label" style="color:${color};border-color:${color}40">${sectorNames[si]}</div>
+            <div style="flex:1">
+              <div class="sector-bar-wrap">
+                <div class="sector-bar" style="width:${barPct}%;background:${color}"></div>
+              </div>
             </div>
-            <div class="sector-info-mini">Vmax ${vMaxSeg} km/h</div>
-          </div>
-          <div class="sector-time">${formatTime(segTime)}</div>
-          ${deltaHtml}
-        </div>`;
-    }).join('');
+            <div class="sector-time">${formatTime(segTime)}</div>
+            ${deltaHtml}
+          </div>`;
+      }).join('');
+  } else {
+    sectorsEl.innerHTML = '<div class="section-title" style="margin-top:8px">Secteurs</div>' +
+      '<div style="font-family:var(--mono);font-size:11px;color:var(--ink-mute);padding:8px 0;">Fais au moins 2 tours pour voir les secteurs fixes.</div>';
+  }
 
   // ── SPEED GRAPH ──
   graphWrap.style.display = 'block';
@@ -3545,6 +3697,15 @@ function loadCircuit(id) {
       document.getElementById('reset-heading-btn').style.display = 'flex';
     }
   }
+
+  // Charger les secteurs sauvegardés pour ce circuit
+  STATE.sectors = null;
+  sectorMarkers.forEach(m => map.removeLayer(m));
+  sectorMarkers = [];
+  DB.get('lt_sectors_' + c.name).then(s => {
+    if (s) { STATE.sectors = s; drawSectorMarkers(s); }
+  });
+
   switchTab('track');
   showToast(`Circuit "${c.name}" chargé !`);
 }
@@ -3706,54 +3867,190 @@ async function exportSessionPDF(sessionIdx) {
   const s = STATE.sessions[sessionIdx];
   if (!s) return;
 
-  // Build mini map SVG
   const mapSVG = buildMiniMapSVGString(s);
+  const bestLap = s.laps.reduce((b,l) => l.time < b.time ? l : b, s.laps[0]);
+
+  // ── Calculs globaux ──
+  const allSpeeds = s.laps.flatMap(l => (l.points||[]).map(p => p.speed||0));
+  const vMaxGlobal = allSpeeds.length ? Math.round(Math.max(...allSpeeds)) : '—';
+  const vMoyGlobal = allSpeeds.length ? Math.round(allSpeeds.reduce((a,b)=>a+b,0)/allSpeeds.length) : '—';
+  const allG = s.laps.flatMap(l => (l.points||[]).map(p => p.g||0));
+  const gMaxGlobal = allG.length ? Math.max(...allG).toFixed(2) : '—';
+  const avgLap = Math.round(s.laps.reduce((a,l)=>a+l.time,0)/s.laps.length);
+  const consistency = s.laps.length > 1
+    ? Math.round(Math.max(...s.laps.map(l=>l.time)) - Math.min(...s.laps.map(l=>l.time)))
+    : 0;
+
+  // ── Tableau comparatif tours ──
+  const lapRows = s.laps.map(l => {
+    const isBest = l.time === s.bestLap;
+    const delta = l.time - s.bestLap;
+    const pts = l.points || [];
+    const speeds = pts.map(p => p.speed||0);
+    const vmax = speeds.length ? Math.round(Math.max(...speeds)) : '—';
+    const vmoy = speeds.length ? Math.round(speeds.reduce((a,b)=>a+b,0)/speeds.length) : '—';
+    const gmax = pts.length ? Math.max(...pts.map(p=>p.g||0)).toFixed(2) : '—';
+
+    // Secteurs
+    let sectorCells = '<td>—</td><td>—</td><td>—</td>';
+    if (l.sectorTimes && l.sectorTimes.length >= 3) {
+      const s1 = l.sectorTimes[0];
+      const s2 = l.sectorTimes[1] - l.sectorTimes[0];
+      const s3 = l.sectorTimes[2] - l.sectorTimes[1];
+      const bs = bestLap.sectorTimes;
+      const sColor = (t, ref) => !ref ? '#000' : t < ref ? '#16a34a' : t > ref + 200 ? '#dc2626' : '#000';
+      sectorCells = `
+        <td style="color:${sColor(s1,bs?.[0])};font-weight:${isBest?'900':'400'}">${formatTime(s1)}</td>
+        <td style="color:${sColor(s2,bs?.[1]-bs?.[0])};font-weight:${isBest?'900':'400'}">${formatTime(s2)}</td>
+        <td style="color:${sColor(s3,bs?.[2]-bs?.[1])};font-weight:${isBest?'900':'400'}">${formatTime(s3)}</td>`;
+    }
+
+    return `<tr style="${isBest?'background:#fffde0;':''}">
+      <td><b>${isBest?'★ ':''}</b>T${l.number}</td>
+      <td style="font-weight:${isBest?'900':'400'}">${formatTime(l.time)}</td>
+      <td style="color:${isBest?'#000':delta>0?'#dc2626':'#16a34a'}">${isBest?'BEST':(delta>0?'+':'')+formatTime(Math.abs(delta))}</td>
+      <td>${vmax} km/h</td>
+      <td>${vmoy} km/h</td>
+      <td>${gmax}g</td>
+      ${sectorCells}
+    </tr>`;
+  }).join('');
+
+  // ── Graphique vitesse SVG (best lap) ──
+  const bestPts = bestLap.points || [];
+  let speedGraphSVG = '';
+  if (bestPts.length > 2) {
+    const speeds = bestPts.map(p => p.speed||0);
+    const maxV = Math.max(...speeds, 10);
+    const W = 640, H = 120, PAD = { t:10, b:20, l:30, r:10 };
+    const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
+    const tx = i => PAD.l + (i/(speeds.length-1))*gW;
+    const ty = v => PAD.t + gH*(1 - v/maxV);
+
+    // Grid lines
+    let grid = '';
+    [0,0.5,1].forEach(r => {
+      const y = PAD.t + gH*(1-r);
+      const v = Math.round(maxV*r);
+      grid += `<line x1="${PAD.l}" y1="${y}" x2="${W-PAD.r}" y2="${y}" stroke="#eee" stroke-width="1"/>`;
+      grid += `<text x="0" y="${y+4}" font-size="8" fill="#999" font-family="monospace">${v}</text>`;
+    });
+
+    // Speed path colored by speed
+    let segs = '';
+    for (let i = 1; i < speeds.length; i++) {
+      const ratio = Math.min(((speeds[i-1]+speeds[i])/2)/maxV, 1);
+      const r = ratio < 0.5 ? 255 : Math.round((1-(ratio-0.5)*2)*255);
+      const g = ratio < 0.5 ? Math.round(ratio*2*220) : 220;
+      segs += `<line x1="${tx(i-1).toFixed(1)}" y1="${ty(speeds[i-1]).toFixed(1)}" x2="${tx(i).toFixed(1)}" y2="${ty(speeds[i]).toFixed(1)}" stroke="rgb(${r},${g},0)" stroke-width="2.5" stroke-linecap="round"/>`;
+    }
+
+    // Sector dividers
+    let sectorLines = '';
+    if (bestLap.sectorTimes) {
+      [0,1].forEach(si => {
+        const ratio = bestLap.sectorTimes[si] / bestLap.time;
+        const x = PAD.l + ratio * gW;
+        sectorLines += `<line x1="${x}" y1="${PAD.t}" x2="${x}" y2="${PAD.t+gH}" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+        sectorLines += `<text x="${x+3}" y="${PAD.t+10}" font-size="9" fill="#a855f7" font-family="monospace">S${si+2}</text>`;
+      });
+    }
+
+    speedGraphSVG = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;width:100%;background:#fafafa;border:1px solid #eee;">
+      ${grid}${segs}${sectorLines}
+    </svg>`;
+  }
 
   const html = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
-<title>LapTrack — ${s.circuit}</title>
+<title>LapTrack — ${s.circuit} — ${s.date}</title>
 <style>
-  body { font-family: 'Courier New', monospace; background: #fff; color: #0a0a0a; padding: 40px; max-width: 700px; margin: 0 auto; }
-  h1 { font-size: 28px; font-weight: 900; text-transform: uppercase; letter-spacing: -1px; border-bottom: 3px solid #0a0a0a; padding-bottom: 12px; }
-  .meta { font-size: 12px; color: #555; margin: 8px 0 24px; }
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
-  .stat { border: 2px solid #0a0a0a; padding: 12px; text-align: center; }
-  .stat-val { font-size: 22px; font-weight: 800; }
-  .stat-label { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: #555; margin-top: 4px; }
-  table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-  th { background: #0a0a0a; color: #fff; padding: 8px 12px; text-align: left; font-size: 11px; letter-spacing: 1px; }
-  td { padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 13px; }
-  tr.best td { background: #fffde0; font-weight: 800; }
-  .map-wrap { border: 2px solid #0a0a0a; margin: 20px 0; }
-  .footer { font-size: 10px; color: #aaa; margin-top: 40px; text-align: center; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Courier New', monospace; background: #fff; color: #0a0a0a; padding: 32px; max-width: 860px; margin: 0 auto; font-size: 13px; }
+  h1 { font-size: 26px; font-weight: 900; text-transform: uppercase; letter-spacing: -1px; border-bottom: 3px solid #0a0a0a; padding-bottom: 10px; margin-bottom: 6px; }
+  .meta { font-size: 11px; color: #555; margin-bottom: 20px; }
+  h2 { font-size: 13px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; margin: 24px 0 10px; border-left: 4px solid #0a0a0a; padding-left: 10px; }
+  .stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 20px; }
+  .stat { border: 2px solid #0a0a0a; padding: 10px 8px; text-align: center; }
+  .stat-val { font-size: 18px; font-weight: 900; line-height: 1; }
+  .stat-label { font-size: 8px; letter-spacing: 1px; text-transform: uppercase; color: #777; margin-top: 4px; }
+  .stat.highlight { background: #0a0a0a; color: #fff; }
+  .stat.highlight .stat-label { color: #aaa; }
+  table { width: 100%; border-collapse: collapse; margin: 0 0 20px; font-size: 12px; }
+  th { background: #0a0a0a; color: #fff; padding: 7px 10px; text-align: left; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+  th.s { background: #581c87; }
+  td { padding: 6px 10px; border-bottom: 1px solid #f0f0f0; }
+  tr:hover td { background: #fafafa; }
+  .map-wrap { border: 2px solid #0a0a0a; margin-bottom: 20px; }
+  .graph-wrap { margin-bottom: 20px; }
+  .legend { display: flex; gap: 16px; font-size: 10px; color: #555; margin-top: 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .dot { width: 10px; height: 4px; display: inline-block; }
+  .footer { font-size: 10px; color: #aaa; margin-top: 32px; text-align: center; border-top: 1px solid #eee; padding-top: 12px; }
+  @media print { body { padding: 16px; } }
 </style></head><body>
-<h1>LapTrack — Rapport de session</h1>
-<div class="meta">Circuit : <b>${s.circuit}</b> · Pilote : <b>${s.user}</b> · Date : ${s.date}${s.vehicle ? ' · ' + s.vehicle : ''}</div>
 
-<div class="stats">
-  <div class="stat"><div class="stat-val">${formatTime(s.bestLap)}</div><div class="stat-label">Meilleur tour</div></div>
-  <div class="stat"><div class="stat-val">${s.lapCount}</div><div class="stat-label">Tours</div></div>
-  <div class="stat"><div class="stat-val">${s.fusionUsed ? 'OUI' : 'NON'}</div><div class="stat-label">Kalman actif</div></div>
+<h1>LapTrack — Rapport de session</h1>
+<div class="meta">
+  Circuit : <b>${s.circuit}</b> &nbsp;·&nbsp;
+  Pilote : <b>${s.user}</b> &nbsp;·&nbsp;
+  Date : <b>${s.date}</b>
+  ${s.vehicle ? `&nbsp;·&nbsp; Véhicule : <b>${s.vehicle}</b>` : ''}
 </div>
 
+<h2>Résumé de session</h2>
+<div class="stats">
+  <div class="stat highlight"><div class="stat-val">${formatTime(s.bestLap)}</div><div class="stat-label">Meilleur tour</div></div>
+  <div class="stat"><div class="stat-val">${formatTime(avgLap)}</div><div class="stat-label">Temps moyen</div></div>
+  <div class="stat"><div class="stat-val">${s.lapCount}</div><div class="stat-label">Tours</div></div>
+  <div class="stat"><div class="stat-val">${vMaxGlobal} km/h</div><div class="stat-label">Vitesse max</div></div>
+  <div class="stat"><div class="stat-val">${vMoyGlobal} km/h</div><div class="stat-label">Vitesse moy.</div></div>
+  <div class="stat"><div class="stat-val">${gMaxGlobal}g</div><div class="stat-label">G lat. max</div></div>
+</div>
+
+<h2>Tracé du circuit</h2>
 <div class="map-wrap">${mapSVG}</div>
 
+<h2>Graphique vitesse — Meilleur tour</h2>
+<div class="graph-wrap">
+  ${speedGraphSVG || '<div style="padding:20px;color:#aaa;text-align:center">Pas de données de vitesse</div>'}
+  <div class="legend">
+    <span><span class="dot" style="background:rgb(255,0,0)"></span> Lent</span>
+    <span><span class="dot" style="background:rgb(180,220,0)"></span> Moyen</span>
+    <span><span class="dot" style="background:rgb(0,220,0)"></span> Rapide</span>
+    <span><span class="dot" style="background:#a855f7;height:2px;border-top:2px dashed #a855f7"></span> Secteurs</span>
+  </div>
+</div>
+
+<h2>Comparaison des tours</h2>
 <table>
-  <tr><th>Tour</th><th>Temps</th><th>Delta</th><th>V.Max</th></tr>
-  ${s.laps.map(l => {
-    const isBest = l.time === s.bestLap;
-    const delta = l.time - s.bestLap;
-    const vmax = l.points ? Math.round(Math.max(...l.points.map(p => p.speed || 0))) : '—';
-    return `<tr class="${isBest ? 'best' : ''}">
-      <td>T${l.number}${isBest ? ' ★' : ''}</td>
-      <td>${formatTime(l.time)}</td>
-      <td>${isBest ? 'BEST' : '+' + formatTime(delta)}</td>
-      <td>${vmax} km/h</td>
-    </tr>`;
-  }).join('')}
+  <tr>
+    <th>Tour</th>
+    <th>Temps</th>
+    <th>Delta</th>
+    <th>V.Max</th>
+    <th>V.Moy</th>
+    <th>G.Max</th>
+    <th class="s">S1</th>
+    <th class="s">S2</th>
+    <th class="s">S3</th>
+  </tr>
+  ${lapRows}
 </table>
 
-<div class="footer">Généré par LapTrack · ${new Date().toLocaleString('fr-FR')}</div>
+${s.laps.length > 1 ? `
+<h2>Régularité</h2>
+<div style="border:2px solid #0a0a0a;padding:14px;font-size:12px;">
+  Écart meilleur/pire tour : <b>${formatTime(consistency)}</b> &nbsp;·&nbsp;
+  Temps moyen : <b>${formatTime(avgLap)}</b> &nbsp;·&nbsp;
+  Écart moyen/best : <b>+${formatTime(avgLap - s.bestLap)}</b>
+  ${consistency < 1000 ? ' &nbsp;·&nbsp; <b style="color:#16a34a">Très régulier ✓</b>' : consistency < 3000 ? ' &nbsp;·&nbsp; <span style="color:#d97706">Régularité correcte</span>' : ' &nbsp;·&nbsp; <span style="color:#dc2626">Régularité à améliorer</span>'}
+</div>` : ''}
+
+<div class="footer">
+  Généré par LapTrack &nbsp;·&nbsp; ${new Date().toLocaleString('fr-FR')} &nbsp;·&nbsp;
+  ${s.fusionUsed ? 'Kalman actif' : 'GPS seul'}
+</div>
 </body></html>`;
 
   const blob = new Blob([html], { type: 'text/html' });
@@ -3854,6 +4151,15 @@ async function init() {
     document.getElementById('set-line-label').textContent = 'LIGNE DÉPART ✓';
     if (startline.heading !== undefined) {
       document.getElementById('reset-heading-btn').style.display = 'flex';
+    }
+  }
+
+  // Charger les secteurs du dernier circuit utilisé
+  if (STATE.circuitName) {
+    const savedSectors = await DB.get('lt_sectors_' + STATE.circuitName);
+    if (savedSectors) {
+      STATE.sectors = savedSectors;
+      drawSectorMarkers(savedSectors);
     }
   }
 
