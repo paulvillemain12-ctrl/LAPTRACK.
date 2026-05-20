@@ -1665,18 +1665,109 @@ function createPosMarker(latlng) {
   return L.marker(latlng, { icon });
 }
 
-function updateCarHeading(lat, lng) {
-  // Calcule le heading depuis les 2 derniers points GPS
-  if (GPS_BUFFER.length < 2) return;
-  const prev = GPS_BUFFER[GPS_BUFFER.length - 2];
-  const curr = GPS_BUFFER[GPS_BUFFER.length - 1];
-  const dLat = curr.lat - prev.lat;
-  const dLng = curr.lng - prev.lng;
-  if (Math.abs(dLat) < 0.000001 && Math.abs(dLng) < 0.000001) return;
-  // atan2 donne l'angle par rapport au nord, converti en degrés
-  const heading = Math.atan2(dLng, dLat) * 180 / Math.PI;
+// ══════════════════════════════════════
+// MAGNÉTOMÈTRE — cap magnétique
+// DeviceOrientation API (alpha = cap nord)
+// ══════════════════════════════════════
+const MAG = {
+  active: false,
+  heading: null,        // cap magnétique en degrés (0 = nord)
+  headingAccuracy: null,
+  calibrated: false,
+};
+
+function startMagnetometer() {
+  if (!window.DeviceOrientationEvent) return;
+
+  // iOS 13+ nécessite une permission pour DeviceOrientation absolu
+  if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+    // Sera demandé en même temps que DeviceMotion
+    window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
+    window.addEventListener('deviceorientation', onDeviceOrientation, true);
+  } else {
+    window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
+    window.addEventListener('deviceorientation', onDeviceOrientation, true);
+  }
+}
+
+function onDeviceOrientation(event) {
+  // alpha = rotation autour de l'axe Z = cap par rapport au nord magnétique
+  // Sur iOS : webkitCompassHeading est plus précis (corrigé pour déclinaison)
+  let heading = null;
+
+  if (event.webkitCompassHeading !== undefined && event.webkitCompassHeading !== null) {
+    // iOS Safari — cap direct, 0 = nord, sens horaire
+    heading = event.webkitCompassHeading;
+    MAG.headingAccuracy = event.webkitCompassAccuracy;
+  } else if (event.absolute && event.alpha !== null) {
+    // Android / autres — alpha en sens anti-horaire depuis nord
+    heading = (360 - event.alpha) % 360;
+  }
+
+  if (heading === null) return;
+
+  MAG.heading = heading;
+  MAG.active = true;
+  MAG.calibrated = (MAG.headingAccuracy !== null && MAG.headingAccuracy < 20);
+
+  // Mettre à jour la voiture sur la carte avec le cap magnétique
+  // Le magnétomètre donne le cap de la boussole, pas le cap de déplacement
+  // On l'utilise uniquement à basse vitesse (<15 km/h) où le GPS est imprécis
+  const speed = STATE.currentPos?.speed || 0;
+  if (speed < 15) {
+    updateCarWithMagHeading(heading);
+  }
+
+  // Mettre à jour le badge IMU
+  updateIMUBadge();
+}
+
+function updateCarWithMagHeading(heading) {
+  // heading magnétique → rotation du marqueur voiture
+  // webkitCompassHeading : 0=nord, 90=est, 180=sud, 270=ouest
+  // Notre SVG : capot vers le haut = nord = 0°
   carHeading = heading;
-  // Mettre à jour la rotation du SVG sans recréer le marker
+  const el = document.getElementById('car-marker');
+  if (el) el.style.transform = `rotate(${heading}deg)`;
+}
+
+function getFusedHeading(lat, lng) {
+  // Fusionne magnétomètre + GPS selon la vitesse
+  const speed = STATE.currentPos?.speed || 0;
+
+  // À haute vitesse (>20 km/h) → GPS heading fiable
+  if (speed > 20 && GPS_BUFFER.length >= 2) {
+    const prev = GPS_BUFFER[GPS_BUFFER.length - 2];
+    const curr = GPS_BUFFER[GPS_BUFFER.length - 1];
+    const dLat = curr.lat - prev.lat;
+    const dLng = curr.lng - prev.lng;
+    if (Math.abs(dLat) > 0.000001 || Math.abs(dLng) > 0.000001) {
+      return Math.atan2(dLng, dLat) * 180 / Math.PI;
+    }
+  }
+
+  // À basse vitesse (<20 km/h) → magnétomètre plus fiable
+  if (MAG.active && MAG.heading !== null) {
+    return MAG.heading;
+  }
+
+  // Fallback GPS
+  if (GPS_BUFFER.length >= 2) {
+    const prev = GPS_BUFFER[GPS_BUFFER.length - 2];
+    const curr = GPS_BUFFER[GPS_BUFFER.length - 1];
+    const dLat = curr.lat - prev.lat;
+    const dLng = curr.lng - prev.lng;
+    if (Math.abs(dLat) > 0.000001 || Math.abs(dLng) > 0.000001) {
+      return Math.atan2(dLng, dLat) * 180 / Math.PI;
+    }
+  }
+
+  return carHeading; // garde le dernier heading connu
+}
+
+function updateCarHeading(lat, lng) {
+  const heading = getFusedHeading(lat, lng);
+  carHeading = heading;
   const el = document.getElementById('car-marker');
   if (el) el.style.transform = `rotate(${heading}deg)`;
 }
@@ -1823,15 +1914,26 @@ function checkLineCrossing(lat, lng) {
 
 function recordStartLineHeading() {
   if (!STATE.startLine || STATE.startLine.heading !== undefined) return;
+
+  // Préférer le magnétomètre — plus précis à basse vitesse
+  if (MAG.active && MAG.heading !== null) {
+    STATE.startLine.heading = MAG.heading;
+    DB.set('lt_startline', STATE.startLine);
+    drawStartLineVisual({ lat: STATE.startLine.lat, lng: STATE.startLine.lng }, MAG.heading);
+    showToast('Direction enregistrée via boussole ✓');
+    return;
+  }
+
+  // Fallback GPS
   if (STATE.currentPoints.length < 3) return;
   const n = STATE.currentPoints.length;
-  const prev = STATE.currentPoints[n-3];
-  const curr = STATE.currentPoints[n-1];
+  const prev = STATE.currentPoints[n - 3];
+  const curr = STATE.currentPoints[n - 1];
   const heading = Math.atan2(curr.lng - prev.lng, curr.lat - prev.lat) * 180 / Math.PI;
   STATE.startLine.heading = heading;
   DB.set('lt_startline', STATE.startLine);
   drawStartLineVisual({ lat: STATE.startLine.lat, lng: STATE.startLine.lng }, heading);
-  showToast('Direction de passage enregistrée ✓');
+  showToast('Direction enregistrée via GPS ✓');
 }
 // ══════════════════════════════════════
 function requestSensors() {
@@ -1869,6 +1971,7 @@ function requestSensors() {
 // ══════════════════════════════════════
 function startIMU() {
   window.addEventListener('devicemotion', onDeviceMotion);
+  startMagnetometer();
 }
 
 function onDeviceMotion(event) {
@@ -2276,8 +2379,20 @@ function updateGPSBadge() {
 
 function updateIMUBadge() {
   const dot = document.getElementById('imu-dot');
-  dot.className = 'dot' + (STATE.imuActive ? ' active' : '');
-  document.getElementById('imu-status').textContent = 'IMU';
+  const status = document.getElementById('imu-status');
+  dot.className = 'dot';
+  if (MAG.active && STATE.imuActive) {
+    dot.classList.add('active');
+    status.textContent = MAG.calibrated ? 'IMU+MAG' : 'IMU+MAG?';
+  } else if (STATE.imuActive) {
+    dot.classList.add('active');
+    status.textContent = 'IMU';
+  } else if (MAG.active) {
+    dot.classList.add('warn');
+    status.textContent = 'MAG';
+  } else {
+    status.textContent = 'IMU';
+  }
 }
 
 function updateKalmanBadge() {
