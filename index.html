@@ -2041,7 +2041,7 @@ function toggleRecording() {
   if (!STATE.recording) {
     // Demande accès capteurs au premier tap (requis par iOS)
     if (!STATE.sensorsAuthorized) requestSensors();
-    // Show mode selector — recording starts only after user confirms in startSession()
+    // Reset session state
     STATE.laps = [];
     STATE.currentPoints = [];
     STATE.lapStartTime = null;
@@ -2051,15 +2051,7 @@ function toggleRecording() {
     STATE.currentDriverIdx = 0;
     trackLayer.clearLayers();
     document.getElementById('lap-times-mini').innerHTML = '';
-
-    // Populate circuit name suggestions from past sessions
-    const circuits = [...new Set(STATE.sessions.map(s => s.circuit).filter(Boolean))];
-    const datalist = document.getElementById('circuit-suggestions');
-    datalist.innerHTML = circuits.map(c => `<option value="${c}">`).join('');
-    // Pre-fill with last used circuit
-    const input = document.getElementById('circuit-name-input');
-    if (!input.value && STATE.circuitName !== 'Mon Circuit') input.value = STATE.circuitName;
-
+    // Show mode overlay instead of starting directly
     document.getElementById('mode-overlay').classList.remove('hidden');
   } else {
     // STOP
@@ -2081,6 +2073,14 @@ function toggleRecording() {
     document.getElementById('chrono-display').textContent = '00:00.00';
     document.getElementById('chrono-lap').textContent = 'EN ATTENTE';
     document.getElementById('chrono-display').classList.remove('recording');
+
+    // Réafficher l'overlay pour la prochaine session
+    setTimeout(() => {
+      document.getElementById('mode-overlay').classList.remove('hidden');
+      const circuits = [...new Set(STATE.sessions.map(s => s.circuit).filter(Boolean))];
+      const datalist = document.getElementById('circuit-suggestions');
+      datalist.innerHTML = circuits.map(c => `<option value="${c}">`).join('');
+    }, 1000);
   }
 }
 
@@ -3618,6 +3618,17 @@ async function init() {
   renderLeaderboard();
   updateCircuitSelect();
   registerServiceWorker();
+
+  // Montrer l'overlay de session au lancement
+  setTimeout(() => {
+    document.getElementById('mode-overlay').classList.remove('hidden');
+    // Populate circuit suggestions
+    const circuits = [...new Set(STATE.sessions.map(s => s.circuit).filter(Boolean))];
+    const datalist = document.getElementById('circuit-suggestions');
+    datalist.innerHTML = circuits.map(c => `<option value="${c}">`).join('');
+    const input = document.getElementById('circuit-name-input');
+    if (input && STATE.circuitName !== 'Mon Circuit') input.value = STATE.circuitName;
+  }, 300);
 
   setTimeout(() => startGPS(), 500);
 }
