@@ -2039,9 +2039,7 @@ function toggleRecording() {
   if (!STATE.gpsActive) { showToast('GPS non actif — attends le signal'); return; }
 
   if (!STATE.recording) {
-    // Demande accès capteurs au premier tap (requis par iOS)
     if (!STATE.sensorsAuthorized) requestSensors();
-    // Reset session state
     STATE.laps = [];
     STATE.currentPoints = [];
     STATE.lapStartTime = null;
@@ -2051,8 +2049,19 @@ function toggleRecording() {
     STATE.currentDriverIdx = 0;
     trackLayer.clearLayers();
     document.getElementById('lap-times-mini').innerHTML = '';
-    // Show mode overlay instead of starting directly
-    document.getElementById('mode-overlay').classList.remove('hidden');
+    // Démarrer directement — plus de popup
+    STATE.recording = true;
+    WakeLock.request();
+    startChrono();
+    updateRecBtn(true);
+    updateGPSBadge();
+    updateLapDisplay();
+    if (STATE.mode === 'multi') {
+      showDriverHUD();
+      showToast(`Session multi — ${STATE.drivers.length} pilotes`);
+    } else {
+      showToast(!STATE.startLine ? 'Pose la ligne départ d\'abord !' : 'Enregistrement démarré');
+    }
   } else {
     // STOP
     STATE.recording = false;
@@ -2073,14 +2082,6 @@ function toggleRecording() {
     document.getElementById('chrono-display').textContent = '00:00.00';
     document.getElementById('chrono-lap').textContent = 'EN ATTENTE';
     document.getElementById('chrono-display').classList.remove('recording');
-
-    // Réafficher l'overlay pour la prochaine session
-    setTimeout(() => {
-      document.getElementById('mode-overlay').classList.remove('hidden');
-      const circuits = [...new Set(STATE.sessions.map(s => s.circuit).filter(Boolean))];
-      const datalist = document.getElementById('circuit-suggestions');
-      datalist.innerHTML = circuits.map(c => `<option value="${c}">`).join('');
-    }, 1000);
   }
 }
 
