@@ -1220,7 +1220,40 @@
 
 <script>
 // ══════════════════════════════════════
-// WAKE LOCK — empêche l'écran de s'éteindre
+// SUPABASE — sauvegarde cloud
+// ══════════════════════════════════════
+const SUPA_URL = 'https://gxckeqyzyeahijcsnezn.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd4Y2tlcXl6eWVhaGlqY3NuZXpuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMzc1NDgsImV4cCI6MjA5NDgxMzU0OH0.II48oTNgMOPvI8ftLt7A9hpyF60_P5yj6pK17rmanA8';
+
+const SUPA = {
+  headers: {
+    'Content-Type': 'application/json',
+    'apikey': SUPA_KEY,
+    'Authorization': `Bearer ${SUPA_KEY}`,
+  },
+
+  async insert(table, data) {
+    try {
+      const res = await fetch(`${SUPA_URL}/rest/v1/${table}`, {
+        method: 'POST',
+        headers: { ...this.headers, 'Prefer': 'return=representation' },
+        body: JSON.stringify(data),
+      });
+      return await res.json();
+    } catch (e) { console.warn('Supabase insert error:', e); return null; }
+  },
+
+  async select(table, filters = '') {
+    try {
+      const res = await fetch(`${SUPA_URL}/rest/v1/${table}?order=created_at.desc&limit=100${filters}`, {
+        headers: this.headers,
+      });
+      return await res.json();
+    } catch (e) { console.warn('Supabase select error:', e); return []; }
+  },
+};
+
+
 // pendant un run ou un enregistrement
 // ══════════════════════════════════════
 const WakeLock = (() => {
@@ -2226,7 +2259,7 @@ function askUsername() {
   if (name) { STATE.userName = name.trim() || 'Pilote'; DB.set('lt_username', STATE.userName); }
 }
 
-function saveSession() {
+async function saveSession() {
   if (!STATE.laps.length) return;
   const best = getBestLap();
   const session = {
@@ -2237,9 +2270,27 @@ function saveSession() {
     bestLap: best.time, lapCount: STATE.laps.length,
     fusionUsed: STATE.imuActive,
   };
+
+  // Sauvegarde locale (IndexedDB) — toujours
   STATE.sessions.unshift(session);
-  if (STATE.sessions.length > 50) STATE.sessions.pop();
+  if (STATE.sessions.length > 100) STATE.sessions.pop();
   DB.set('lt_sessions', STATE.sessions);
+
+  // Sauvegarde cloud (Supabase)
+  SUPA.insert('sessions', {
+    user_name: session.user,
+    circuit: session.circuit,
+    vehicle: STATE.vehicle || null,
+    date: session.date,
+    best_lap: session.bestLap,
+    lap_count: session.lapCount,
+    fusion_used: session.fusionUsed,
+    laps: session.laps,
+  }).then(r => {
+    if (r && !r.error) showToast('Session sauvegardée ✓ (cloud)');
+    else showToast('Session sauvegardée ✓ (local)');
+  });
+
   renderSessions(); renderLeaderboard(); updateCircuitSelect();
 }
 
@@ -2770,11 +2821,10 @@ function renderMultiLeaderboard() {
 }
 
 function endMultiSession() {
-  // Show final leaderboard, save to sessions
   STATE.driverResults.forEach(d => {
     if (!d || !d.laps || !d.laps.length) return;
     const best = d.laps.reduce((b,l) => l.time < b.time ? l : b);
-    STATE.sessions.unshift({
+    const session = {
       id: Date.now() + Math.random(),
       circuit: STATE.circuitName,
       user: d.name,
@@ -2784,6 +2834,18 @@ function endMultiSession() {
       bestLap: best.time,
       lapCount: d.laps.length,
       fusionUsed: STATE.imuActive,
+    };
+    STATE.sessions.unshift(session);
+    // Supabase
+    SUPA.insert('sessions', {
+      user_name: d.name,
+      circuit: STATE.circuitName,
+      vehicle: d.vehicle,
+      date: session.date,
+      best_lap: best.time,
+      lap_count: d.laps.length,
+      fusion_used: STATE.imuActive,
+      laps: d.laps,
     });
   });
   DB.set('lt_sessions', STATE.sessions);
@@ -3616,6 +3678,27 @@ async function init() {
       document.getElementById('reset-heading-btn').style.display = 'flex';
     }
   }
+
+  // Charger les sessions depuis Supabase (remplace/complète IndexedDB)
+  SUPA.select('sessions').then(data => {
+    if (data && Array.isArray(data) && data.length > 0) {
+      // Convertir format Supabase → format app
+      const supabaseSessions = data.map(s => ({
+        id: s.id,
+        circuit: s.circuit,
+        user: s.user_name,
+        vehicle: s.vehicle,
+        date: s.date,
+        bestLap: s.best_lap,
+        lapCount: s.lap_count,
+        fusionUsed: s.fusion_used,
+        laps: s.laps || [],
+      }));
+      STATE.sessions = supabaseSessions;
+      DB.set('lt_sessions', STATE.sessions);
+      renderSessions(); renderLeaderboard(); updateCircuitSelect();
+    }
+  });
 
   document.getElementById('mode-overlay').classList.add('hidden');
 
