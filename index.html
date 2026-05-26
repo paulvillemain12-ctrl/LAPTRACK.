@@ -3861,8 +3861,384 @@ async function exportSessionPDF(sessionIdx) {
   const s = STATE.sessions[sessionIdx];
   if (!s) return;
 
-  const mapSVG = buildMiniMapSVGString(s);
   const bestLap = s.laps.reduce((b,l) => l.time < b.time ? l : b, s.laps[0]);
+
+  // ── Stats ──
+  const allSpeeds = s.laps.flatMap(l => (l.points||[]).map(p => p.speed||0));
+  const vMax = allSpeeds.length ? Math.round(Math.max(...allSpeeds)) : 0;
+  const vMoy = allSpeeds.length ? Math.round(allSpeeds.reduce((a,b)=>a+b,0)/allSpeeds.length) : 0;
+  const allG = s.laps.flatMap(l => (l.points||[]).map(p => p.g||0));
+  const gMax = allG.length ? Math.max(...allG).toFixed(2) : '—';
+  const avgLap = Math.round(s.laps.reduce((a,l)=>a+l.time,0)/s.laps.length);
+  const consistency = s.laps.length > 1
+    ? Math.round(Math.max(...s.laps.map(l=>l.time)) - Math.min(...s.laps.map(l=>l.time)))
+    : 0;
+
+  // ── Tracé SVG dark ──
+  function buildDarkTrackSVG(session, W, H) {
+    const allPoints = (session.laps||[]).flatMap(l => l.points||[]);
+    if (allPoints.length < 3) return `<svg width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#111"/><text x="${W/2}" y="${H/2}" fill="#333" text-anchor="middle" font-size="14">Pas de tracé</text></svg>`;
+    const lats = allPoints.map(p=>p.lat), lngs = allPoints.map(p=>p.lng);
+    const minLat=Math.min(...lats), maxLat=Math.max(...lats);
+    const minLng=Math.min(...lngs), maxLng=Math.max(...lngs);
+    const rangeLat=maxLat-minLat||0.0001, rangeLng=maxLng-minLng||0.0001;
+    const PAD=28, gW=W-PAD*2, gH=H-PAD*2;
+    const scale=Math.min(gW/rangeLng, gH/rangeLat);
+    const offX=PAD+(gW-rangeLng*scale)/2, offY=PAD+(gH-rangeLat*scale)/2;
+    const tx=lng=>offX+(lng-minLng)*scale;
+    const ty=lat=>offY+(maxLat-lat)*scale;
+    const best = session.laps.reduce((b,l)=>l.time<b.time?l:b, session.laps[0]);
+
+    // Ghost laps
+    let segs = '';
+    session.laps.forEach(lap => {
+      const pts = lap.points||[];
+      const isBest = lap.time===best.time;
+      if (!isBest) {
+        for (let i=1;i<pts.length;i++) {
+          segs += `<line x1="${tx(pts[i-1].lng).toFixed(1)}" y1="${ty(pts[i-1].lat).toFixed(1)}" x2="${tx(pts[i].lng).toFixed(1)}" y2="${ty(pts[i].lat).toFixed(1)}" stroke="#ffffff18" stroke-width="1.5" stroke-linecap="round"/>`;
+        }
+      }
+    });
+
+    // Best lap colored by speed with glow
+    const pts = best.points||[];
+    for (let i=1;i<pts.length;i++) {
+      const a=pts[i-1], b=pts[i];
+      const spd = ((a.speed||0)+(b.speed||0))/2;
+      const ratio = Math.min(spd/120, 1);
+      let r,g,bl;
+      if (ratio < 0.4) { r=255; g=Math.round(ratio/0.4*100); bl=0; }
+      else if (ratio < 0.7) { r=255; g=Math.round(100+(ratio-0.4)/0.3*155); bl=0; }
+      else { r=Math.round(255-(ratio-0.7)/0.3*255); g=255; bl=Math.round((ratio-0.7)/0.3*80); }
+      const color = `rgb(${r},${g},${bl})`;
+      const x1=tx(a.lng).toFixed(1), y1=ty(a.lat).toFixed(1);
+      const x2=tx(b.lng).toFixed(1), y2=ty(b.lat).toFixed(1);
+      // Glow effect
+      segs += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="6" stroke-linecap="round" opacity="0.25"/>`;
+      segs += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="3" stroke-linecap="round"/>`;
+    }
+
+    // Start dot
+    if (pts.length) {
+      const sx=tx(pts[0].lng).toFixed(1), sy=ty(pts[0].lat).toFixed(1);
+      segs += `<circle cx="${sx}" cy="${sy}" r="7" fill="#ff4d1a" opacity="0.4"/>`;
+      segs += `<circle cx="${sx}" cy="${sy}" r="4" fill="#ff4d1a"/>`;
+    }
+
+    return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="${W}" height="${H}" fill="#0a0a0f"/>
+      ${segs}
+    </svg>`;
+  }
+
+  // ── Speed graph SVG dark ──
+  function buildSpeedGraphSVG(lap, W, H) {
+    const pts = (lap.points||[]);
+    if (pts.length < 3) return `<svg width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#111"/></svg>`;
+    const speeds = pts.map(p=>p.speed||0);
+    const maxV = Math.max(...speeds, 10);
+    const PAD={t:8,b:18,l:28,r:8};
+    const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
+    const tx=i=>PAD.l+(i/(speeds.length-1))*gW;
+    const ty=v=>PAD.t+gH*(1-v/maxV);
+
+    // Grid
+    let grid='';
+    [0,0.5,1].forEach(r=>{
+      const y=PAD.t+gH*(1-r);
+      grid+=`<line x1="${PAD.l}" y1="${y}" x2="${W-PAD.r}" y2="${y}" stroke="#ffffff12" stroke-width="1"/>`;
+      grid+=`<text x="2" y="${y+3}" font-size="7" fill="#ffffff40" font-family="monospace">${Math.round(maxV*r)}</text>`;
+    });
+
+    // Colored segments
+    let segs='';
+    for (let i=1;i<speeds.length;i++) {
+      const ratio=Math.min(((speeds[i-1]+speeds[i])/2)/maxV,1);
+      const r=ratio<0.5?255:Math.round((1-(ratio-0.5)*2)*255);
+      const g=ratio<0.5?Math.round(ratio*2*200):200;
+      segs+=`<line x1="${tx(i-1).toFixed(1)}" y1="${ty(speeds[i-1]).toFixed(1)}" x2="${tx(i).toFixed(1)}" y2="${ty(speeds[i]).toFixed(1)}" stroke="rgb(${r},${g},0)" stroke-width="2" stroke-linecap="round"/>`;
+    }
+
+    // Sector lines
+    let slines='';
+    if (lap.sectorTimes) {
+      [0,1].forEach(si=>{
+        const ratio=lap.sectorTimes[si]/lap.time;
+        const x=PAD.l+ratio*gW;
+        slines+=`<line x1="${x}" y1="${PAD.t}" x2="${x}" y2="${PAD.t+gH}" stroke="#a855f7" stroke-width="1" stroke-dasharray="3,2"/>`;
+        slines+=`<text x="${x+2}" y="${PAD.t+8}" font-size="7" fill="#a855f7" font-family="monospace">S${si+2}</text>`;
+      });
+    }
+
+    return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="${W}" height="${H}" fill="#0d0d14"/>
+      ${grid}${segs}${slines}
+    </svg>`;
+  }
+
+  // ── Lap comparison rows ──
+  const lapRows = s.laps.map(l => {
+    const isBest = l.time === s.bestLap;
+    const delta = l.time - s.bestLap;
+    const pts = l.points||[];
+    const vmax = pts.length ? Math.round(Math.max(...pts.map(p=>p.speed||0))) : '—';
+    const deltaColor = isBest ? '#e8ff47' : delta > 2000 ? '#ef4444' : delta > 500 ? '#f97316' : '#22c55e';
+    const deltaText = isBest ? 'BEST ★' : (delta>0?'+':'')+formatTime(Math.abs(delta));
+
+    let sectorCells = '<td>—</td><td>—</td><td>—</td>';
+    if (l.sectorTimes && l.sectorTimes.length >= 3 && bestLap.sectorTimes) {
+      const myS = [l.sectorTimes[0], l.sectorTimes[1]-l.sectorTimes[0], l.sectorTimes[2]-l.sectorTimes[1]];
+      const bS = [bestLap.sectorTimes[0], bestLap.sectorTimes[1]-bestLap.sectorTimes[0], bestLap.sectorTimes[2]-bestLap.sectorTimes[1]];
+      sectorCells = myS.map((t,si) => {
+        const d = t - bS[si];
+        const c = d < -100 ? '#a855f7' : d < 200 ? '#22c55e' : '#ef4444';
+        return `<td style="color:${c}">${formatTime(t)}</td>`;
+      }).join('');
+    }
+
+    return `<tr style="border-bottom:1px solid #ffffff0a;${isBest?'background:#e8ff4710;':''}">
+      <td style="color:${isBest?'#e8ff47':'#888'};font-weight:${isBest?'900':'400'}">T${l.number}</td>
+      <td style="color:${isBest?'#e8ff47':'#fff'};font-weight:900">${formatTime(l.time)}</td>
+      <td style="color:${deltaColor};font-weight:700">${deltaText}</td>
+      <td style="color:#47c8ff">${vmax}</td>
+      ${sectorCells}
+    </tr>`;
+  }).join('');
+
+  const trackSVG = buildDarkTrackSVG(s, 380, 280);
+  const speedSVG = buildSpeedGraphSVG(bestLap, 380, 100);
+
+  // ── Sector best times ──
+  let sectorSection = '';
+  if (bestLap.sectorTimes && bestLap.sectorTimes.length >= 3) {
+    const s1 = bestLap.sectorTimes[0];
+    const s2 = bestLap.sectorTimes[1] - bestLap.sectorTimes[0];
+    const s3 = bestLap.sectorTimes[2] - bestLap.sectorTimes[1];
+    sectorSection = `
+    <div class="sector-bar-wrap">
+      <div class="sector-item" style="flex:${s1}">
+        <div class="sector-label">S1</div>
+        <div class="sector-time">${formatTime(s1)}</div>
+      </div>
+      <div class="sector-item" style="flex:${s2};border-left:1px solid #ffffff20">
+        <div class="sector-label">S2</div>
+        <div class="sector-time">${formatTime(s2)}</div>
+      </div>
+      <div class="sector-item" style="flex:${s3};border-left:1px solid #ffffff20">
+        <div class="sector-label">S3</div>
+        <div class="sector-time">${formatTime(s3)}</div>
+      </div>
+    </div>`;
+  }
+
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<title>LapTrack — ${s.circuit}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    background: #0a0a0f;
+    color: #f0f0ff;
+    font-family: 'Rajdhani', sans-serif;
+    width: 430px;
+    min-height: 764px;
+    margin: 0 auto;
+    padding: 0;
+  }
+  .card {
+    width: 430px;
+    background: linear-gradient(160deg, #0f0f1a 0%, #0a0a0f 60%, #0d0a1a 100%);
+    padding: 28px 24px 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  /* Grain texture */
+  .card::before {
+    content:'';position:absolute;inset:0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    opacity: 0.3; pointer-events:none; z-index:0;
+  }
+  .content { position:relative; z-index:1; }
+
+  /* Header */
+  .header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; }
+  .brand { font-family:'JetBrains Mono',monospace; font-size:11px; color:#ffffff30; letter-spacing:3px; text-transform:uppercase; }
+  .circuit-name { font-family:'Rajdhani',sans-serif; font-weight:900; font-size:28px; color:#fff; letter-spacing:-0.5px; line-height:1; text-transform:uppercase; }
+  .session-meta { font-family:'JetBrains Mono',monospace; font-size:10px; color:#ffffff50; margin-top:4px; }
+  .driver-badge {
+    background: #e8ff47; color: #0a0a0f;
+    font-family:'Rajdhani',sans-serif; font-weight:900;
+    font-size:13px; padding:4px 12px; letter-spacing:1px;
+    text-transform:uppercase;
+  }
+
+  /* Best lap hero */
+  .best-hero {
+    text-align:center; padding:20px 0 16px;
+    border-top: 1px solid #ffffff10;
+    border-bottom: 1px solid #ffffff10;
+    margin-bottom:16px;
+  }
+  .best-label { font-family:'JetBrains Mono',monospace; font-size:10px; color:#e8ff4780; letter-spacing:3px; text-transform:uppercase; margin-bottom:6px; }
+  .best-time { font-family:'JetBrains Mono',monospace; font-size:56px; font-weight:700; color:#e8ff47; letter-spacing:-3px; line-height:1; text-shadow: 0 0 40px rgba(232,255,71,0.3); }
+  .best-sub { display:flex; justify-content:center; gap:16px; margin-top:10px; }
+  .best-sub-item { text-align:center; }
+  .best-sub-val { font-family:'JetBrains Mono',monospace; font-size:18px; font-weight:700; line-height:1; }
+  .best-sub-lbl { font-family:'JetBrains Mono',monospace; font-size:8px; letter-spacing:1.5px; text-transform:uppercase; margin-top:3px; opacity:0.4; }
+
+  /* Stats grid */
+  .stats-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:16px; }
+  .stat-box { background:#ffffff07; border:1px solid #ffffff0d; padding:10px 8px; text-align:center; }
+  .stat-val { font-family:'JetBrains Mono',monospace; font-size:18px; font-weight:700; color:#47c8ff; line-height:1; }
+  .stat-val.orange { color:#ff8c00; }
+  .stat-val.purple { color:#a855f7; }
+  .stat-label { font-family:'Rajdhani',sans-serif; font-size:9px; color:#ffffff35; letter-spacing:1.5px; text-transform:uppercase; margin-top:4px; }
+
+  /* Track */
+  .track-wrap { border:1px solid #ffffff10; margin-bottom:12px; background:#0a0a0f; }
+
+  /* Speed graph */
+  .graph-section { margin-bottom:14px; }
+  .section-title { font-family:'JetBrains Mono',monospace; font-size:9px; color:#ffffff30; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px; }
+  .graph-wrap { border:1px solid #ffffff0d; }
+
+  /* Sectors */
+  .sector-bar-wrap { display:flex; margin-bottom:14px; border:1px solid #ffffff0d; overflow:hidden; }
+  .sector-item { padding:8px 10px; background:#0d0d14; flex-shrink:0; }
+  .sector-label { font-family:'JetBrains Mono',monospace; font-size:9px; color:#a855f7; letter-spacing:2px; margin-bottom:3px; }
+  .sector-time { font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:700; color:#fff; }
+
+  /* Lap table */
+  .lap-table { width:100%; border-collapse:collapse; margin-bottom:16px; }
+  .lap-table th { font-family:'JetBrains Mono',monospace; font-size:8px; color:#ffffff25; letter-spacing:1.5px; text-transform:uppercase; padding:6px 6px; text-align:left; border-bottom:1px solid #ffffff10; }
+  .lap-table td { font-family:'JetBrains Mono',monospace; font-size:11px; padding:6px 6px; }
+  .th-sector { color:#a855f740 !important; }
+
+  /* Speed legend */
+  .speed-legend { display:flex; gap:12px; justify-content:center; margin-bottom:14px; }
+  .legend-item { display:flex; align-items:center; gap:4px; font-family:'JetBrains Mono',monospace; font-size:9px; color:#ffffff40; }
+  .legend-dot { width:20px; height:3px; border-radius:2px; }
+
+  /* Regularity */
+  .regularity { background:#ffffff05; border:1px solid #ffffff0a; padding:10px 12px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; }
+  .reg-val { font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:700; }
+  .reg-label { font-family:'Rajdhani',sans-serif; font-size:9px; color:#ffffff35; letter-spacing:1px; text-transform:uppercase; margin-top:2px; }
+
+  /* Footer */
+  .footer-bar { display:flex; justify-content:space-between; align-items:center; border-top:1px solid #ffffff08; padding-top:12px; }
+  .footer-brand { font-family:'JetBrains Mono',monospace; font-size:10px; color:#ffffff25; letter-spacing:2px; }
+  .footer-date { font-family:'JetBrains Mono',monospace; font-size:9px; color:#ffffff20; }
+
+  /* Accent line top */
+  .accent-line { height:3px; background:linear-gradient(90deg,#e8ff47,#47c8ff,#a855f7); margin-bottom:0; }
+
+  @media print { body { width:430px; } }
+</style>
+</head>
+<body>
+<div class="accent-line"></div>
+<div class="card">
+<div class="content">
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="brand">LapTrack · Télémétrie</div>
+      <div class="circuit-name">${s.circuit}</div>
+      <div class="session-meta">${s.date} · ${s.lapCount} tours · ${s.user}</div>
+    </div>
+    <div class="driver-badge">${s.user}</div>
+  </div>
+
+  <!-- Best lap hero -->
+  <div class="best-hero">
+    <div class="best-label">Meilleur tour</div>
+    <div class="best-time">${formatTime(s.bestLap)}</div>
+    <div class="best-sub">
+      <div class="best-sub-item">
+        <div class="best-sub-val" style="color:#47c8ff">${vMax} <span style="font-size:11px">km/h</span></div>
+        <div class="best-sub-lbl" style="color:#47c8ff">V. Max</div>
+      </div>
+      <div style="width:1px;background:#ffffff15;margin:2px 0"></div>
+      <div class="best-sub-item">
+        <div class="best-sub-val" style="color:#ff8c00">${vMoy} <span style="font-size:11px">km/h</span></div>
+        <div class="best-sub-lbl" style="color:#ff8c00">V. Moy</div>
+      </div>
+      <div style="width:1px;background:#ffffff15;margin:2px 0"></div>
+      <div class="best-sub-item">
+        <div class="best-sub-val" style="color:#a855f7">${gMax}<span style="font-size:11px">g</span></div>
+        <div class="best-sub-lbl" style="color:#a855f7">G Lat</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-box">
+      <div class="stat-val">${s.lapCount}</div>
+      <div class="stat-label">Tours</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-val orange">${formatTime(avgLap)}</div>
+      <div class="stat-label">Moy. tour</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-val purple">${formatTime(consistency)}</div>
+      <div class="stat-label">Régularité</div>
+    </div>
+  </div>
+
+  <!-- Track map -->
+  <div class="section-title">Tracé · Meilleur tour</div>
+  <div class="track-wrap">${trackSVG}</div>
+
+  <!-- Speed legend -->
+  <div class="speed-legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#ff2200"></div>Lent</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ffaa00"></div>Moyen</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#00ff80"></div>Rapide</div>
+  </div>
+
+  <!-- Speed graph -->
+  <div class="graph-section">
+    <div class="section-title">Vitesse sur le tour · S1 S2 S3</div>
+    <div class="graph-wrap">${speedSVG}</div>
+  </div>
+
+  <!-- Sectors -->
+  ${sectorSection ? `<div class="section-title">Secteurs · Meilleur tour</div>${sectorSection}` : ''}
+
+  <!-- Lap table -->
+  <div class="section-title">Comparaison des tours</div>
+  <table class="lap-table">
+    <tr>
+      <th>N°</th><th>Temps</th><th>Delta</th><th>Vmax</th>
+      <th class="th-sector">S1</th><th class="th-sector">S2</th><th class="th-sector">S3</th>
+    </tr>
+    ${lapRows}
+  </table>
+
+  <!-- Footer -->
+  <div class="footer-bar">
+    <div class="footer-brand">LAPTRACK</div>
+    <div class="footer-date">Généré le ${new Date().toLocaleDateString('fr-FR')}</div>
+  </div>
+
+</div>
+</div>
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `laptrack_${s.circuit.replace(/\s+/g,'_')}_${s.date.replace(/\//g,'-')}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Rapport exporté — ouvre et fais une capture !');
+}
 
   // ── Calculs globaux ──
   const allSpeeds = s.laps.flatMap(l => (l.points||[]).map(p => p.speed||0));
@@ -4050,13 +4426,6 @@ ${s.laps.length > 1 ? `
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
-  a.download = `laptrack_${s.circuit.replace(/\s+/g,'_')}_${s.date.replace(/\//g,'-')}.html`;
-  a.click();
-  URL.revokeObjectURL(url);
-  showToast('Rapport exporté !');
-}
-
 function buildMiniMapSVGString(session) {
   const allPoints = (session.laps || []).flatMap(l => l.points || []);
   if (allPoints.length < 3) return '<div style="padding:20px;text-align:center;color:#aaa">Pas de tracé</div>';
